@@ -62,24 +62,25 @@ static int fh_resolve_hook_address(struct ftrace_hook *hook)
 	}
 
 #if USE_FENTRY_OFFSET
-	*((unsigned long*) hook->original) = hook->address + MCOUNT_INSN_SIZE;
+	*((unsigned long *)hook->original) = hook->address + MCOUNT_INSN_SIZE;
 #else
-	*((unsigned long*) hook->original) = hook->address;
+	*((unsigned long *)hook->original) = hook->address;
 #endif
 
 	return 0;
 }
 
 static void notrace fh_ftrace_thunk(unsigned long ip, unsigned long parent_ip,
-		struct ftrace_ops *ops, struct pt_regs *regs)
+				    struct ftrace_ops *ops,
+				    struct pt_regs *regs)
 {
 	struct ftrace_hook *hook = container_of(ops, struct ftrace_hook, ops);
 
 #if USE_FENTRY_OFFSET
-	regs->ip = (unsigned long) hook->function;
+	regs->ip = (unsigned long)hook->function;
 #else
 	if (!within_module(parent_ip, THIS_MODULE))
-		regs->ip = (unsigned long) hook->function;
+		regs->ip = (unsigned long)hook->function;
 #endif
 }
 
@@ -98,15 +99,14 @@ int fh_install_hook(struct ftrace_hook *hook)
 		return err;
 
 	/*
-	 * We're going to modify %rip register so we'll need IPMODIFY flag
-	 * and SAVE_REGS as its prerequisite. ftrace's anti-recursion guard
-	 * is useless if we change %rip so disable it with RECURSION_SAFE.
-	 * We'll perform our own checks for trace function reentry.
-	 */
+   * We're going to modify %rip register so we'll need IPMODIFY flag
+   * and SAVE_REGS as its prerequisite. ftrace's anti-recursion guard
+   * is useless if we change %rip so disable it with RECURSION_SAFE.
+   * We'll perform our own checks for trace function reentry.
+   */
 	hook->ops.func = fh_ftrace_thunk;
-	hook->ops.flags = FTRACE_OPS_FL_SAVE_REGS
-	                | FTRACE_OPS_FL_RECURSION_SAFE
-	                | FTRACE_OPS_FL_IPMODIFY;
+	hook->ops.flags = FTRACE_OPS_FL_SAVE_REGS |
+			  FTRACE_OPS_FL_RECURSION_SAFE | FTRACE_OPS_FL_IPMODIFY;
 
 	err = ftrace_set_filter_ip(&hook->ops, hook->address, 0, 0);
 	if (err) {
@@ -190,7 +190,7 @@ void fh_remove_hooks(struct ftrace_hook *hooks, size_t count)
 #error Currently only x86_64 architecture is supported
 #endif
 
-#if defined(CONFIG_X86_64) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,17,0))
+#if defined(CONFIG_X86_64) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0))
 #define PTREGS_SYSCALL_STUBS 1
 #endif
 
@@ -219,19 +219,22 @@ static asmlinkage long fh_sys_clone(struct pt_regs *regs)
 }
 #else
 static asmlinkage long (*real_sys_clone)(unsigned long clone_flags,
-		unsigned long newsp, int __user *parent_tidptr,
-		int __user *child_tidptr, unsigned long tls);
+					 unsigned long newsp,
+					 int __user *parent_tidptr,
+					 int __user *child_tidptr,
+					 unsigned long tls);
 
 static asmlinkage long fh_sys_clone(unsigned long clone_flags,
-		unsigned long newsp, int __user *parent_tidptr,
-		int __user *child_tidptr, unsigned long tls)
+				    unsigned long newsp,
+				    int __user *parent_tidptr,
+				    int __user *child_tidptr, unsigned long tls)
 {
 	long ret;
 
 	pr_info("clone() before\n");
 
-	ret = real_sys_clone(clone_flags, newsp, parent_tidptr,
-		child_tidptr, tls);
+	ret = real_sys_clone(clone_flags, newsp, parent_tidptr, child_tidptr,
+			     tls);
 
 	pr_info("clone() after: %ld\n", ret);
 
@@ -263,7 +266,7 @@ static asmlinkage long fh_sys_execve(struct pt_regs *regs)
 	long ret;
 	char *kernel_filename;
 
-	kernel_filename = duplicate_filename((void*) regs->di);
+	kernel_filename = duplicate_filename((void *)regs->di);
 
 	pr_info("execve() before: %s\n", kernel_filename);
 
@@ -277,12 +280,12 @@ static asmlinkage long fh_sys_execve(struct pt_regs *regs)
 }
 #else
 static asmlinkage long (*real_sys_execve)(const char __user *filename,
-		const char __user *const __user *argv,
-		const char __user *const __user *envp);
+					  const char __user *const __user *argv,
+					  const char __user *const __user *envp);
 
 static asmlinkage long fh_sys_execve(const char __user *filename,
-		const char __user *const __user *argv,
-		const char __user *const __user *envp)
+				     const char __user *const __user *argv,
+				     const char __user *const __user *envp)
 {
 	long ret;
 	char *kernel_filename;
@@ -302,8 +305,9 @@ static asmlinkage long fh_sys_execve(const char __user *filename,
 #endif
 
 /*
- * x86_64 kernels have a special naming convention for syscall entry points in newer kernels.
- * That's what you end up with if an architecture has 3 (three) ABIs for system calls.
+ * x86_64 kernels have a special naming convention for syscall entry points in
+ * newer kernels. That's what you end up with if an architecture has 3 (three)
+ * ABIs for system calls.
  */
 #ifdef PTREGS_SYSCALL_STUBS
 #define SYSCALL_NAME(name) ("__x64_" name)
@@ -311,15 +315,14 @@ static asmlinkage long fh_sys_execve(const char __user *filename,
 #define SYSCALL_NAME(name) (name)
 #endif
 
-#define HOOK(_name, _function, _original)	\
-	{					\
-		.name = SYSCALL_NAME(_name),	\
-		.function = (_function),	\
-		.original = (_original),	\
+#define HOOK(_name, _function, _original)                                      \
+	{                                                                      \
+		.name = SYSCALL_NAME(_name), .function = (_function),          \
+		.original = (_original),                                       \
 	}
 
 static struct ftrace_hook demo_hooks[] = {
-	HOOK("sys_clone",  fh_sys_clone,  &real_sys_clone),
+	HOOK("sys_clone", fh_sys_clone, &real_sys_clone),
 	HOOK("sys_execve", fh_sys_execve, &real_sys_execve),
 };
 
