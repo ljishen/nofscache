@@ -1,2 +1,2 @@
-# directio-dev
-Direct all I/O to a device
+# nofscache
+Filesystem cache free for a device
