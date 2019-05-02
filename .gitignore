@@ -58,3 +58,6 @@ dkms.conf
 # is used by YouCompleteMe (https://github.com/Valloric/YouCompleteMe)
 # to enable semantic support for C-family languages
 compile_commands.json
+
+# Vagrant files
+.vagrant/
