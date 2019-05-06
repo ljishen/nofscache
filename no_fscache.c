@@ -1,10 +1,7 @@
-/*
- * Hooking kernel functions using ftrace framework
- *
- * Copyright (c) 2018 ilammy
- */
+// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
+// Copyright (c) 2019, Jianshen Liu
 
-#define pr_fmt(fmt) "ftrace_hook: " fmt
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/ftrace.h>
 #include <linux/kallsyms.h>
@@ -15,9 +12,12 @@
 #include <linux/uaccess.h>
 #include <linux/version.h>
 
+#define NO_FSCACHE_VER "0.1"
+
 MODULE_DESCRIPTION("Example module hooking clone() and execve() via ftrace");
-MODULE_AUTHOR("ilammy <a.lozovsky@gmail.com>");
-MODULE_LICENSE("GPL");
+MODULE_VERSION(NO_FSCACHE_VER);
+MODULE_AUTHOR("Jianshen Liu <jliu120@ucsc.edu>");
+MODULE_LICENSE("Dual BSD/GPL");
 
 /*
  * There are two ways of preventing vicious recursive loops when hooking:
@@ -99,11 +99,11 @@ int fh_install_hook(struct ftrace_hook *hook)
 		return err;
 
 	/*
-   * We're going to modify %rip register so we'll need IPMODIFY flag
-   * and SAVE_REGS as its prerequisite. ftrace's anti-recursion guard
-   * is useless if we change %rip so disable it with RECURSION_SAFE.
-   * We'll perform our own checks for trace function reentry.
-   */
+	 * We're going to modify %rip register so we'll need IPMODIFY flag
+	 * and SAVE_REGS as its prerequisite. ftrace's anti-recursion guard
+	 * is useless if we change %rip so disable it with RECURSION_SAFE.
+	 * We'll perform our own checks for trace function reentry.
+	 */
 	hook->ops.func = fh_ftrace_thunk;
 	hook->ops.flags = FTRACE_OPS_FL_SAVE_REGS |
 			  FTRACE_OPS_FL_RECURSION_SAFE | FTRACE_OPS_FL_IPMODIFY;
@@ -133,14 +133,12 @@ void fh_remove_hook(struct ftrace_hook *hook)
 	int err;
 
 	err = unregister_ftrace_function(&hook->ops);
-	if (err) {
+	if (err)
 		pr_debug("unregister_ftrace_function() failed: %d\n", err);
-	}
 
 	err = ftrace_set_filter_ip(&hook->ops, hook->address, 1, 0);
-	if (err) {
+	if (err)
 		pr_debug("ftrace_set_filter_ip() failed: %d\n", err);
-	}
 }
 
 /**
@@ -166,9 +164,8 @@ int fh_install_hooks(struct ftrace_hook *hooks, size_t count)
 	return 0;
 
 error:
-	while (i != 0) {
+	while (i != 0)
 		fh_remove_hook(&hooks[--i]);
-	}
 
 	return err;
 }
@@ -190,7 +187,7 @@ void fh_remove_hooks(struct ftrace_hook *hooks, size_t count)
 #error Currently only x86_64 architecture is supported
 #endif
 
-#if defined(CONFIG_X86_64) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0))
+#if defined(CONFIG_X86_64) && (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
 #define PTREGS_SYSCALL_STUBS 1
 #endif
 
@@ -203,7 +200,7 @@ void fh_remove_hooks(struct ftrace_hook *hooks, size_t count)
 #endif
 
 #ifdef PTREGS_SYSCALL_STUBS
-static asmlinkage long (*real_sys_clone)(struct pt_regs *regs);
+static asmlinkage long (*sys_clone)(struct pt_regs *regs);
 
 static asmlinkage long fh_sys_clone(struct pt_regs *regs)
 {
@@ -211,18 +208,18 @@ static asmlinkage long fh_sys_clone(struct pt_regs *regs)
 
 	pr_info("clone() before\n");
 
-	ret = real_sys_clone(regs);
+	ret = sys_clone(regs);
 
 	pr_info("clone() after: %ld\n", ret);
 
 	return ret;
 }
 #else
-static asmlinkage long (*real_sys_clone)(unsigned long clone_flags,
-					 unsigned long newsp,
-					 int __user *parent_tidptr,
-					 int __user *child_tidptr,
-					 unsigned long tls);
+static asmlinkage long (*sys_clone)(unsigned long clone_flags,
+				    unsigned long newsp,
+				    int __user *parent_tidptr,
+				    int __user *child_tidptr,
+				    unsigned long tls);
 
 static asmlinkage long fh_sys_clone(unsigned long clone_flags,
 				    unsigned long newsp,
@@ -233,8 +230,7 @@ static asmlinkage long fh_sys_clone(unsigned long clone_flags,
 
 	pr_info("clone() before\n");
 
-	ret = real_sys_clone(clone_flags, newsp, parent_tidptr, child_tidptr,
-			     tls);
+	ret = sys_clone(clone_flags, newsp, parent_tidptr, child_tidptr, tls);
 
 	pr_info("clone() after: %ld\n", ret);
 
@@ -259,7 +255,7 @@ static char *duplicate_filename(const char __user *filename)
 }
 
 #ifdef PTREGS_SYSCALL_STUBS
-static asmlinkage long (*real_sys_execve)(struct pt_regs *regs);
+static asmlinkage long (*sys_execve)(struct pt_regs *regs);
 
 static asmlinkage long fh_sys_execve(struct pt_regs *regs)
 {
@@ -272,16 +268,16 @@ static asmlinkage long fh_sys_execve(struct pt_regs *regs)
 
 	kfree(kernel_filename);
 
-	ret = real_sys_execve(regs);
+	ret = sys_execve(regs);
 
 	pr_info("execve() after: %ld\n", ret);
 
 	return ret;
 }
 #else
-static asmlinkage long (*real_sys_execve)(const char __user *filename,
-					  const char __user *const __user *argv,
-					  const char __user *const __user *envp);
+static asmlinkage long (*sys_execve)(const char __user *filename,
+				     const char __user *const __user *argv,
+				     const char __user *const __user *envp);
 
 static asmlinkage long fh_sys_execve(const char __user *filename,
 				     const char __user *const __user *argv,
@@ -296,7 +292,7 @@ static asmlinkage long fh_sys_execve(const char __user *filename,
 
 	kfree(kernel_filename);
 
-	ret = real_sys_execve(filename, argv, envp);
+	ret = sys_execve(filename, argv, envp);
 
 	pr_info("execve() after: %ld\n", ret);
 
@@ -322,8 +318,8 @@ static asmlinkage long fh_sys_execve(const char __user *filename,
 	}
 
 static struct ftrace_hook demo_hooks[] = {
-	HOOK("sys_clone", fh_sys_clone, &real_sys_clone),
-	HOOK("sys_execve", fh_sys_execve, &real_sys_execve),
+	HOOK("sys_clone", fh_sys_clone, &sys_clone),
+	HOOK("sys_execve", fh_sys_execve, &sys_execve),
 };
 
 static int fh_init(void)
