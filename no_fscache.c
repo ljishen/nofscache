@@ -52,12 +52,12 @@ struct ftrace_hook {
 	struct ftrace_ops ops;
 };
 
-static int fh_resolve_hook_address(struct ftrace_hook *hook)
+static int resolve_hook_address(struct ftrace_hook *hook)
 {
 	hook->address = kallsyms_lookup_name(hook->name);
 
 	if (!hook->address) {
-		pr_debug("unresolved symbol: %s\n", hook->name);
+		pr_err("unresolved symbol: %s\n", hook->name);
 		return -ENOENT;
 	}
 
@@ -70,11 +70,10 @@ static int fh_resolve_hook_address(struct ftrace_hook *hook)
 	return 0;
 }
 
-static void notrace fh_ftrace_thunk(unsigned long ip, unsigned long parent_ip,
-				    struct ftrace_ops *ops,
-				    struct pt_regs *regs)
+static void notrace callback_func(unsigned long ip, unsigned long parent_ip,
+				  struct ftrace_ops *op, struct pt_regs *regs)
 {
-	struct ftrace_hook *hook = container_of(ops, struct ftrace_hook, ops);
+	struct ftrace_hook *hook = container_of(op, struct ftrace_hook, ops);
 
 #if USE_FENTRY_OFFSET
 	regs->ip = (unsigned long)hook->function;
@@ -85,16 +84,16 @@ static void notrace fh_ftrace_thunk(unsigned long ip, unsigned long parent_ip,
 }
 
 /**
- * fh_install_hooks() - register and enable a single hook
+ * install_hook() - register and enable a single hook
  * @hook: a hook to install
  *
  * Returns: zero on success, negative error code otherwise.
  */
-int fh_install_hook(struct ftrace_hook *hook)
+int install_hook(struct ftrace_hook *hook)
 {
 	int err;
 
-	err = fh_resolve_hook_address(hook);
+	err = resolve_hook_address(hook);
 	if (err)
 		return err;
 
@@ -104,7 +103,7 @@ int fh_install_hook(struct ftrace_hook *hook)
 	 * is useless if we change %rip so disable it with RECURSION_SAFE.
 	 * We'll perform our own checks for trace function reentry.
 	 */
-	hook->ops.func = fh_ftrace_thunk;
+	hook->ops.func = callback_func;
 	hook->ops.flags = FTRACE_OPS_FL_SAVE_REGS |
 			  FTRACE_OPS_FL_RECURSION_SAFE | FTRACE_OPS_FL_IPMODIFY;
 
@@ -125,10 +124,10 @@ int fh_install_hook(struct ftrace_hook *hook)
 }
 
 /**
- * fh_remove_hooks() - disable and unregister a single hook
+ * remove_hook() - disable and unregister a single hook
  * @hook: a hook to remove
  */
-void fh_remove_hook(struct ftrace_hook *hook)
+void remove_hook(struct ftrace_hook *hook)
 {
 	int err;
 
@@ -142,7 +141,7 @@ void fh_remove_hook(struct ftrace_hook *hook)
 }
 
 /**
- * fh_install_hooks() - register and enable multiple hooks
+ * install_hooks() - register and enable multiple hooks
  * @hooks: array of hooks to install
  * @count: number of hooks to install
  *
@@ -150,13 +149,13 @@ void fh_remove_hook(struct ftrace_hook *hook)
  *
  * Returns: zero on success, negative error code otherwise.
  */
-int fh_install_hooks(struct ftrace_hook *hooks, size_t count)
+int install_hooks(struct ftrace_hook *hooks, size_t count)
 {
 	int err;
 	size_t i;
 
 	for (i = 0; i < count; i++) {
-		err = fh_install_hook(&hooks[i]);
+		err = install_hook(&hooks[i]);
 		if (err)
 			goto error;
 	}
@@ -165,22 +164,22 @@ int fh_install_hooks(struct ftrace_hook *hooks, size_t count)
 
 error:
 	while (i != 0)
-		fh_remove_hook(&hooks[--i]);
+		remove_hook(&hooks[--i]);
 
 	return err;
 }
 
 /**
- * fh_remove_hooks() - disable and unregister multiple hooks
+ * remove_hooks() - disable and unregister multiple hooks
  * @hooks: array of hooks to remove
  * @count: number of hooks to remove
  */
-void fh_remove_hooks(struct ftrace_hook *hooks, size_t count)
+void remove_hooks(struct ftrace_hook *hooks, size_t count)
 {
 	size_t i;
 
 	for (i = 0; i < count; i++)
-		fh_remove_hook(&hooks[i]);
+		remove_hook(&hooks[i]);
 }
 
 #ifndef CONFIG_X86_64
@@ -322,11 +321,11 @@ static struct ftrace_hook demo_hooks[] = {
 	HOOK("sys_execve", fh_sys_execve, &sys_execve),
 };
 
-static int fh_init(void)
+static int no_fscache_init(void)
 {
 	int err;
 
-	err = fh_install_hooks(demo_hooks, ARRAY_SIZE(demo_hooks));
+	err = install_hooks(demo_hooks, ARRAY_SIZE(demo_hooks));
 	if (err)
 		return err;
 
@@ -334,12 +333,12 @@ static int fh_init(void)
 
 	return 0;
 }
-module_init(fh_init);
+module_init(no_fscache_init);
 
-static void fh_exit(void)
+static void no_fscache_exit(void)
 {
-	fh_remove_hooks(demo_hooks, ARRAY_SIZE(demo_hooks));
+	remove_hooks(demo_hooks, ARRAY_SIZE(demo_hooks));
 
 	pr_info("module unloaded\n");
 }
-module_exit(fh_exit);
+module_exit(no_fscache_exit);
