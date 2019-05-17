@@ -1,4 +1,4 @@
-MOD := no_fscache
+MOD := no_fscache_lp
 
 KERNEL_PATH ?= /lib/modules/$(shell uname -r)/build
 
