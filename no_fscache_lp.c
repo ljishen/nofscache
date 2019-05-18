@@ -34,11 +34,23 @@ static struct klp_patch patch = {
 
 static int no_fscache_init(void)
 {
-	return klp_enable_patch(&patch);
+	int ret;
+
+	ret = klp_register_patch(&patch);
+	if (ret)
+		return ret;
+
+	ret = klp_enable_patch(&patch);
+	if (ret) {
+		WARN_ON(klp_unregister_patch(&patch));
+		return ret;
+	}
+	return 0;
 }
 
 static void no_fscache_exit(void)
 {
+	WARN_ON(klp_unregister_patch(&patch));
 }
 
 module_init(no_fscache_init);
