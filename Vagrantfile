@@ -142,6 +142,9 @@ Vagrant.configure("2") do |config|
     # Install module build dependencies
     apt-get -y --no-install-recommends install build-essential libelf-dev
 
+    # Clean up
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
     # Disable the kernel address space layout randomization (KASLR) on the guest
     sed -i 's/\\(GRUB_CMDLINE_LINUX_DEFAULT=.*\\)"/\\1 nokaslr"/' /etc/default/grub
     update-grub
