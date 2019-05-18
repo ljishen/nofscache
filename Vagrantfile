@@ -139,6 +139,9 @@ Vagrant.configure("2") do |config|
     apt-get -y --no-install-recommends install linux-source-"$kernel_release"="$package_version"
     tar -xf /usr/src/linux-source-*.tar.bz2 -C /vagrant/#{debuggee_folder_name}/
 
+    # Install module build dependencies
+    apt-get -y --no-install-recommends install build-essential libelf-dev
+
     # Disable the kernel address space layout randomization (KASLR) on the guest
     sed -i 's/\\(GRUB_CMDLINE_LINUX_DEFAULT=.*\\)"/\\1 nokaslr"/' /etc/default/grub
     update-grub
