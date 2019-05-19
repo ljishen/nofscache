@@ -121,6 +121,7 @@ SH_SCRIPT
   config.vm.provision "shell", inline: <<~SHELL
     # Add a login user to match the permission of the current user on the host
     adduser -disabled-password --gecos "" --uid #{pwuid.uid} #{pwuid.name}
+    echo "#{pwuid.name}:password" | chpasswd
     usermod -aG sudo #{pwuid.name}
     cp -r /home/vagrant/.ssh /home/#{pwuid.name}/
     chown -R #{pwuid.name}:#{pwuid.name} /home/#{pwuid.name}/.ssh
