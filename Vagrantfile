@@ -107,8 +107,12 @@ Vagrant.configure("2") do |config|
 
   commands = ""
   synced_folders.each do |folder|
-    commands += "\nmkdir -p #{folder.guestpath}"
-    commands += "\nmount -t 9p -o trans=virtio,version=9p2000.L '#{folder.mount_tag}' #{folder.guestpath}"
+    commands += <<-SH_SCRIPT
+mkdir -p #{folder.guestpath}
+if ! findmnt "#{folder.guestpath}" > /dev/null 2>&1; then
+    mount -t 9p -o trans=virtio,version=9p2000.L "#{folder.mount_tag}" "#{folder.guestpath}"
+fi
+SH_SCRIPT
   end
 
   # Enable provisioning with a shell script. Additional provisioners such as
@@ -159,10 +163,14 @@ Vagrant.configure("2") do |config|
 
     modprobe 9p
     modprobe 9pnet_virtio
+
     #{commands}
+    # Remove cron job once mount finished
+    rm -f /etc/cron.d/vagrant_mount
     SCRIPT_EOF
 
     chmod +x /usr/local/sbin/vagrant_mount
+
     cat <<'CRON_EOF' > /etc/cron.d/vagrant_mount
     # SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
     # Copyright (c) 2019, Jianshen Liu
