@@ -181,6 +181,9 @@ SH_SCRIPT
     @reboot root vagrant_mount
     CRON_EOF
 
+    # Configure a serial console in the guest
+    systemctl enable serial-getty@ttyS0.service
+
     # Reboot to update system configuration
     reboot
   SHELL
