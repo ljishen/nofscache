@@ -3,342 +3,131 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/ftrace.h>
-#include <linux/kallsyms.h>
-#include <linux/kernel.h>
-#include <linux/linkage.h>
 #include <linux/module.h>
-#include <linux/slab.h>
-#include <linux/uaccess.h>
-#include <linux/version.h>
+#include <linux/kernel.h>
+#include <linux/livepatch.h>
 
-#define NO_FSCACHE_VER "0.1"
+static asmlinkage long (*sys_read)(unsigned int fd, char __user *buf,
+				   size_t count);
+static asmlinkage long (*sys_write)(unsigned int fd, const char __user *buf,
+				    size_t count);
 
-MODULE_DESCRIPTION("Example module hooking clone() and execve() via ftrace");
-MODULE_VERSION(NO_FSCACHE_VER);
-MODULE_AUTHOR("Jianshen Liu <jliu120@ucsc.edu>");
-MODULE_LICENSE("Dual BSD/GPL");
+static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
+					   size_t count)
+{
+	/* pr_info("sys_read() before\n"); */
+	return sys_read(fd, buf, count);
+}
 
-/*
- * There are two ways of preventing vicious recursive loops when hooking:
- * - detect recusion using function return address (USE_FENTRY_OFFSET = 0)
- * - avoid recusion by jumping over the ftrace call (USE_FENTRY_OFFSET = 1)
- */
-#define USE_FENTRY_OFFSET 0
+static asmlinkage long
+no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
+{
+	return sys_write(fd, buf, count);
+}
 
-/**
- * struct ftrace_hook - describes a single hook to install
- *
- * @name:     name of the function to hook
- *
- * @function: pointer to the function to execute instead
- *
- * @original: pointer to the location where to save a pointer
- *            to the original function
- *
- * @address:  kernel address of the function entry
- *
- * @ops:      ftrace_ops state for this function hook
- *
- * The user should fill in only &name, &hook, &orig fields.
- * Other fields are considered implementation details.
- */
-struct ftrace_hook {
-	const char *name;
-	void *function;
-	void *original;
-
-	unsigned long address;
-	struct ftrace_ops ops;
+struct no_fscache_func {
+	const char *old_name;
+	void *orig_func;
+	void *new_func;
 };
 
-static int resolve_hook_address(struct ftrace_hook *hook)
-{
-	hook->address = kallsyms_lookup_name(hook->name);
+#define NO_FSCACHE_FUNC(_old_name, _orig_func, _new_func)                      \
+	{                                                                      \
+		.old_name = (_old_name), .orig_func = (_orig_func),            \
+		.new_func = (_new_func),                                       \
+	}
 
-	if (!hook->address) {
-		pr_err("unresolved symbol: %s\n", hook->name);
+static struct no_fscache_func nf_funcs[] = {
+	NO_FSCACHE_FUNC("sys_read", &sys_read, no_fscache_sys_read),
+	NO_FSCACHE_FUNC("sys_write", &sys_write, no_fscache_sys_write),
+};
+
+static struct klp_func funcs[ARRAY_SIZE(nf_funcs) + 1];
+
+static struct klp_object objs[] = {
+	{
+		.name = NULL, /* name being NULL means vmlinux */
+		.funcs = funcs,
+	},
+	{}
+};
+
+static struct klp_patch patch = {
+	.mod = THIS_MODULE,
+	.objs = objs,
+};
+
+static void fill_klp_func(struct klp_func *func,
+			  struct no_fscache_func *nf_func)
+{
+	func->old_name = nf_func->old_name;
+	func->new_func = nf_func->new_func;
+}
+
+static int fill_no_fscache_func(struct no_fscache_func *nf_func)
+{
+	unsigned long address = kallsyms_lookup_name(nf_func->old_name);
+
+	if (!address) {
+		pr_err("unresolved symbol: %s\n", nf_func->old_name);
 		return -ENOENT;
 	}
 
-#if USE_FENTRY_OFFSET
-	*((unsigned long *)hook->original) = hook->address + MCOUNT_INSN_SIZE;
-#else
-	*((unsigned long *)hook->original) = hook->address;
-#endif
+	*((unsigned long *)nf_func->orig_func) = address + MCOUNT_INSN_SIZE;
 
 	return 0;
 }
 
-static void notrace callback_func(unsigned long ip, unsigned long parent_ip,
-				  struct ftrace_ops *op, struct pt_regs *regs)
+static int resolve_func(void)
 {
-	struct ftrace_hook *hook = container_of(op, struct ftrace_hook, ops);
-
-#if USE_FENTRY_OFFSET
-	regs->ip = (unsigned long)hook->function;
-#else
-	if (!within_module(parent_ip, THIS_MODULE))
-		regs->ip = (unsigned long)hook->function;
-#endif
-}
-
-/**
- * install_hook() - register and enable a single hook
- * @hook: a hook to install
- *
- * Returns: zero on success, negative error code otherwise.
- */
-int install_hook(struct ftrace_hook *hook)
-{
-	int err;
-
-	err = resolve_hook_address(hook);
-	if (err)
-		return err;
-
-	/*
-	 * We're going to modify %rip register so we'll need IPMODIFY flag
-	 * and SAVE_REGS as its prerequisite. ftrace's anti-recursion guard
-	 * is useless if we change %rip so disable it with RECURSION_SAFE.
-	 * We'll perform our own checks for trace function reentry.
-	 */
-	hook->ops.func = callback_func;
-	hook->ops.flags = FTRACE_OPS_FL_SAVE_REGS |
-			  FTRACE_OPS_FL_RECURSION_SAFE | FTRACE_OPS_FL_IPMODIFY;
-
-	err = ftrace_set_filter_ip(&hook->ops, hook->address, 0, 0);
-	if (err) {
-		pr_debug("ftrace_set_filter_ip() failed: %d\n", err);
-		return err;
-	}
-
-	err = register_ftrace_function(&hook->ops);
-	if (err) {
-		pr_debug("register_ftrace_function() failed: %d\n", err);
-		ftrace_set_filter_ip(&hook->ops, hook->address, 1, 0);
-		return err;
-	}
-
-	return 0;
-}
-
-/**
- * remove_hook() - disable and unregister a single hook
- * @hook: a hook to remove
- */
-void remove_hook(struct ftrace_hook *hook)
-{
-	int err;
-
-	err = unregister_ftrace_function(&hook->ops);
-	if (err)
-		pr_debug("unregister_ftrace_function() failed: %d\n", err);
-
-	err = ftrace_set_filter_ip(&hook->ops, hook->address, 1, 0);
-	if (err)
-		pr_debug("ftrace_set_filter_ip() failed: %d\n", err);
-}
-
-/**
- * install_hooks() - register and enable multiple hooks
- * @hooks: array of hooks to install
- * @count: number of hooks to install
- *
- * If some hooks fail to install then all hooks will be removed.
- *
- * Returns: zero on success, negative error code otherwise.
- */
-int install_hooks(struct ftrace_hook *hooks, size_t count)
-{
-	int err;
+	size_t count = ARRAY_SIZE(nf_funcs);
 	size_t i;
 
 	for (i = 0; i < count; i++) {
-		err = install_hook(&hooks[i]);
-		if (err)
-			goto error;
-	}
+		struct klp_func *func = &funcs[i];
+		struct no_fscache_func *nf_func = &nf_funcs[i];
+		int ret;
 
+		fill_klp_func(func, nf_func);
+
+		ret = fill_no_fscache_func(nf_func);
+		if (ret)
+			return ret;
+	}
 	return 0;
-
-error:
-	while (i != 0)
-		remove_hook(&hooks[--i]);
-
-	return err;
 }
-
-/**
- * remove_hooks() - disable and unregister multiple hooks
- * @hooks: array of hooks to remove
- * @count: number of hooks to remove
- */
-void remove_hooks(struct ftrace_hook *hooks, size_t count)
-{
-	size_t i;
-
-	for (i = 0; i < count; i++)
-		remove_hook(&hooks[i]);
-}
-
-#ifndef CONFIG_X86_64
-#error Currently only x86_64 architecture is supported
-#endif
-
-#if defined(CONFIG_X86_64) && (KERNEL_VERSION(4, 17, 0) <= LINUX_VERSION_CODE)
-#define PTREGS_SYSCALL_STUBS 1
-#endif
-
-/*
- * Tail call optimization can interfere with recursion detection based on
- * return address on the stack. Disable it to avoid machine hangups.
- */
-#if !USE_FENTRY_OFFSET
-#pragma GCC optimize("-fno-optimize-sibling-calls")
-#endif
-
-#ifdef PTREGS_SYSCALL_STUBS
-static asmlinkage long (*sys_clone)(struct pt_regs *regs);
-
-static asmlinkage long fh_sys_clone(struct pt_regs *regs)
-{
-	long ret;
-
-	pr_info("clone() before\n");
-
-	ret = sys_clone(regs);
-
-	pr_info("clone() after: %ld\n", ret);
-
-	return ret;
-}
-#else
-static asmlinkage long (*sys_clone)(unsigned long clone_flags,
-				    unsigned long newsp,
-				    int __user *parent_tidptr,
-				    int __user *child_tidptr,
-				    unsigned long tls);
-
-static asmlinkage long fh_sys_clone(unsigned long clone_flags,
-				    unsigned long newsp,
-				    int __user *parent_tidptr,
-				    int __user *child_tidptr, unsigned long tls)
-{
-	long ret;
-
-	pr_info("clone() before\n");
-
-	ret = sys_clone(clone_flags, newsp, parent_tidptr, child_tidptr, tls);
-
-	pr_info("clone() after: %ld\n", ret);
-
-	return ret;
-}
-#endif
-
-static char *duplicate_filename(const char __user *filename)
-{
-	char *kernel_filename;
-
-	kernel_filename = kmalloc(4096, GFP_KERNEL);
-	if (!kernel_filename)
-		return NULL;
-
-	if (strncpy_from_user(kernel_filename, filename, 4096) < 0) {
-		kfree(kernel_filename);
-		return NULL;
-	}
-
-	return kernel_filename;
-}
-
-#ifdef PTREGS_SYSCALL_STUBS
-static asmlinkage long (*sys_execve)(struct pt_regs *regs);
-
-static asmlinkage long fh_sys_execve(struct pt_regs *regs)
-{
-	long ret;
-	char *kernel_filename;
-
-	kernel_filename = duplicate_filename((void *)regs->di);
-
-	pr_info("execve() before: %s\n", kernel_filename);
-
-	kfree(kernel_filename);
-
-	ret = sys_execve(regs);
-
-	pr_info("execve() after: %ld\n", ret);
-
-	return ret;
-}
-#else
-static asmlinkage long (*sys_execve)(const char __user *filename,
-				     const char __user *const __user *argv,
-				     const char __user *const __user *envp);
-
-static asmlinkage long fh_sys_execve(const char __user *filename,
-				     const char __user *const __user *argv,
-				     const char __user *const __user *envp)
-{
-	long ret;
-	char *kernel_filename;
-
-	kernel_filename = duplicate_filename(filename);
-
-	pr_info("execve() before: %s\n", kernel_filename);
-
-	kfree(kernel_filename);
-
-	ret = sys_execve(filename, argv, envp);
-
-	pr_info("execve() after: %ld\n", ret);
-
-	return ret;
-}
-#endif
-
-/*
- * x86_64 kernels have a special naming convention for syscall entry points in
- * newer kernels. That's what you end up with if an architecture has 3 (three)
- * ABIs for system calls.
- */
-#ifdef PTREGS_SYSCALL_STUBS
-#define SYSCALL_NAME(name) ("__x64_" name)
-#else
-#define SYSCALL_NAME(name) (name)
-#endif
-
-#define HOOK(_name, _function, _original)                                      \
-	{                                                                      \
-		.name = SYSCALL_NAME(_name), .function = (_function),          \
-		.original = (_original),                                       \
-	}
-
-static struct ftrace_hook demo_hooks[] = {
-	HOOK("sys_clone", fh_sys_clone, &sys_clone),
-	HOOK("sys_execve", fh_sys_execve, &sys_execve),
-};
 
 static int no_fscache_init(void)
 {
-	int err;
+	int ret;
 
-	err = install_hooks(demo_hooks, ARRAY_SIZE(demo_hooks));
-	if (err)
-		return err;
+	ret = resolve_func();
+	if (ret)
+		return ret;
 
-	pr_info("module loaded\n");
+	ret = klp_register_patch(&patch);
+	if (ret)
+		return ret;
+
+	ret = klp_enable_patch(&patch);
+	if (ret) {
+		WARN_ON(klp_unregister_patch(&patch));
+		return ret;
+	}
 
 	return 0;
 }
-module_init(no_fscache_init);
 
 static void no_fscache_exit(void)
 {
-	remove_hooks(demo_hooks, ARRAY_SIZE(demo_hooks));
-
-	pr_info("module unloaded\n");
+	WARN_ON(klp_unregister_patch(&patch));
 }
+
+module_init(no_fscache_init);
 module_exit(no_fscache_exit);
+
+MODULE_DESCRIPTION("Bypass the operating system read and write caches");
+MODULE_VERSION("0.1");
+MODULE_AUTHOR("Jianshen Liu <jliu120@ucsc.edu>");
+MODULE_LICENSE("Dual BSD/GPL");
+MODULE_INFO(livepatch, "Y");
