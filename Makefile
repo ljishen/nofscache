@@ -19,20 +19,43 @@ debug: $(MOD).ko
 clean:
 	make -C $(KERNEL_PATH) M=$(CURDIR) clean
 
+# Read more about livepatch consistency model:
+#	https://www.kernel.org/doc/Documentation/livepatch/livepatch.txt
+.PHONY: check_state
+check_state:
+	@while : ; do							\
+		transitioning="$$(cat $(mod_sysfs_if)/transition)";	\
+		if [ "$$transitioning" = "1" ]; then			\
+			echo "[INFO] Checking transition state...";	\
+			sleep 2;					\
+		else							\
+			break;						\
+		fi							\
+	done
+
+.PHONY: done
+done:
+	@echo "[INFO] Done!"
+
 .PHONY: insmod
 insmod: $(MOD).ko
 	sudo insmod $(MOD).ko
 
-.PHONY: rmmod
+.PHONY: install
+install: insmod check_state done
+
+.PHONY: uninstall
 ifeq (,$(wildcard $(mod_sysfs_if)/enabled))
-rmmod:
-	@echo "Operation skipped due to kernel module is not loaded."
+uninstall:
+	@echo "[INFO] Operation skipped due to kernel module is not loaded."
 else
-rmmod:
+.PHONY: disable
+disable:
 	-@echo 0 | sudo tee $(mod_sysfs_if)/enabled > /dev/null 2>&1
-	while : ; do \
-		transitioning="$$(cat $(mod_sysfs_if)/transition)"; \
-		[ "$$transitioning" = "0" ] && break; \
-	done
+
+.PHONY: rmmod
+rmmod: disable check_state
 	sudo rmmod $(MOD)
+
+uninstall: rmmod done
 endif

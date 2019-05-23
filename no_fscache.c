@@ -17,7 +17,6 @@ static ssize_t (*ksys_read)(unsigned int fd, char __user *buf, size_t count);
 static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 					   size_t count)
 {
-	/* The problem is it somehow causes recursive call here. */
 	return orig_sys_read(fd, buf, count);
 }
 
