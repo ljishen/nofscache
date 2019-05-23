@@ -3,6 +3,8 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/fadvise.h>
+#include <linux/file.h>
 #include <linux/kernel.h>
 #include <linux/livepatch.h>
 #include <linux/module.h>
@@ -11,13 +13,23 @@ static asmlinkage long (*orig_sys_read)(unsigned int fd, char __user *buf,
 					size_t count);
 static asmlinkage long (*orig_sys_write)(unsigned int fd,
 					 const char __user *buf, size_t count);
-
-static ssize_t (*ksys_read)(unsigned int fd, char __user *buf, size_t count);
+static asmlinkage long (*orig_sys_fadvise64)(int fd, loff_t offset, size_t len,
+					     int advice);
 
 static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 					   size_t count)
 {
-	return orig_sys_read(fd, buf, count);
+	struct fd f = fdget(fd);
+	loff_t pos = f.file->f_pos;
+	ssize_t ret = -EBADF;
+
+	if (!f.file)
+		return ret;
+
+	ret = orig_sys_read(fd, buf, count);
+	orig_sys_fadvise64(fd, pos, count, POSIX_FADV_DONTNEED);
+
+	return ret;
 }
 
 static asmlinkage long
@@ -53,7 +65,7 @@ static struct no_fscache_func nf_funcs[] = {
 };
 
 static struct func_symbol dept_fsyms[] = {
-	FUNC_SYMBOL("ksys_read", &ksys_read),
+	FUNC_SYMBOL("sys_fadvise64", &orig_sys_fadvise64),
 };
 
 static struct klp_func funcs[ARRAY_SIZE(nf_funcs) + 1];
