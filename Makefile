@@ -19,6 +19,10 @@ debug: $(MOD).ko
 clean:
 	make -C $(KERNEL_PATH) M=$(CURDIR) clean
 
+.PHONY: insmod
+insmod: $(MOD).ko
+	sudo insmod $(MOD).ko
+
 # Read more about livepatch consistency model:
 #	https://www.kernel.org/doc/Documentation/livepatch/livepatch.txt
 .PHONY: check_state
@@ -33,29 +37,27 @@ check_state:
 		fi							\
 	done
 
-.PHONY: done
-done:
-	@echo "[INFO] Done!"
-
-.PHONY: insmod
-insmod: $(MOD).ko
-	sudo insmod $(MOD).ko
-
 .PHONY: install
-install: insmod check_state done
+install: insmod check_state
+	@echo "[INFO] successfully installed"
 
 .PHONY: uninstall
 ifeq (,$(wildcard $(mod_sysfs_if)/enabled))
 uninstall:
 	@echo "[INFO] Operation skipped due to kernel module is not loaded."
 else
+.PHONY: enable
+enable:
+	-echo 1 | sudo tee $(mod_sysfs_if)/enabled > /dev/null 2>&1
+
 .PHONY: disable
 disable:
-	-@echo 0 | sudo tee $(mod_sysfs_if)/enabled > /dev/null 2>&1
+	-echo 0 | sudo tee $(mod_sysfs_if)/enabled > /dev/null 2>&1
 
 .PHONY: rmmod
 rmmod: disable check_state
 	sudo rmmod $(MOD)
 
-uninstall: rmmod done
+uninstall: rmmod
+	@echo "[INFO] successfully uninstalled"
 endif
