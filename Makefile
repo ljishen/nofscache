@@ -53,7 +53,7 @@ install: insmod check_state
 .PHONY: uninstall
 ifeq (,$(wildcard $(MOD_SYSFS_IF)/enabled))
 uninstall:
-	@echo "[INFO] Operation skipped due to kernel module is not loaded."
+	@printf "[INFO] Operation skipped due to kernel module is not loaded.\n\n"
 else
 .PHONY: enable
 enable:
