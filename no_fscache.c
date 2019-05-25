@@ -9,12 +9,21 @@
 #include <linux/livepatch.h>
 #include <linux/module.h>
 
-static asmlinkage long (*orig_sys_fadvise64)(int fd, loff_t offset, size_t len,
-					     int advice);
+/*
+ * Functions to be overwritten.
+ */
 static asmlinkage long (*orig_sys_read)(unsigned int fd, char __user *buf,
 					size_t count);
 static asmlinkage long (*orig_sys_write)(unsigned int fd,
 					 const char __user *buf, size_t count);
+
+/*
+ * Functions we need but are not exported to used in loadable modules by kernel.
+ */
+static asmlinkage long (*orig_sys_fadvise64)(int fd, loff_t offset, size_t len,
+					     int advice);
+static ssize_t (*orig_vfs_read)(struct file *file, char __user *buf,
+				size_t count, loff_t *pos);
 
 static unsigned long __cp_fdget_pos(unsigned int fd)
 {
@@ -85,7 +94,7 @@ static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 		loff_t pos = file_pos_read(f.file);
 		loff_t fpos = pos;
 
-		ret = vfs_read(f.file, buf, count, &pos);
+		ret = orig_vfs_read(f.file, buf, count, &pos);
 		if (ret >= 0)
 			file_pos_write(f.file, pos);
 		cp_fdput_pos(f);
@@ -145,6 +154,7 @@ static struct no_fscache_func nf_funcs[] = {
 
 static struct func_symbol dept_fsyms[] = {
 	FUNC_SYMBOL("sys_fadvise64", &orig_sys_fadvise64),
+	FUNC_SYMBOL("vfs_read", &orig_vfs_read),
 };
 
 static struct klp_func funcs[ARRAY_SIZE(nf_funcs) + 1];
