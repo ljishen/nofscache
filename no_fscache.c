@@ -9,26 +9,105 @@
 #include <linux/livepatch.h>
 #include <linux/module.h>
 
+static asmlinkage long (*orig_sys_fadvise64)(int fd, loff_t offset, size_t len,
+					     int advice);
 static asmlinkage long (*orig_sys_read)(unsigned int fd, char __user *buf,
 					size_t count);
 static asmlinkage long (*orig_sys_write)(unsigned int fd,
 					 const char __user *buf, size_t count);
-static asmlinkage long (*orig_sys_fadvise64)(int fd, loff_t offset, size_t len,
-					     int advice);
+
+static unsigned long __cp_fdget_pos(unsigned int fd)
+{
+	unsigned long v = __fdget(fd);
+	struct file *file = (struct file *)(v & ~3);
+
+	if (file && (file->f_mode & FMODE_ATOMIC_POS)) {
+		if (file_count(file) > 1) {
+			v |= FDPUT_POS_UNLOCK;
+			mutex_lock(&file->f_pos_lock);
+		}
+	}
+	return v;
+}
+
+static inline struct fd cp_fdget_pos(int fd)
+{
+	return __to_fd(__cp_fdget_pos(fd));
+}
+
+/*
+ * File is stream-like
+ * See https://elixir.bootlin.com/linux/v5.1.4/source/include/linux/fs.h#L162
+ */
+#define FMODE_STREAM ((__force fmode_t)0x200000)
+
+static inline loff_t file_pos_read(struct file *file)
+{
+	return (file->f_mode & FMODE_STREAM) ? 0 : file->f_pos;
+}
+
+static inline void file_pos_write(struct file *file, loff_t pos)
+{
+	if ((file->f_mode & FMODE_STREAM) == 0)
+		file->f_pos = pos;
+}
+
+static void __cp_f_unlock_pos(struct file *f)
+{
+	mutex_unlock(&f->f_pos_lock);
+}
+
+static inline void cp_fdput_pos(struct fd f)
+{
+	if (f.flags & FDPUT_POS_UNLOCK)
+		__cp_f_unlock_pos(f.file);
+	fdput(f);
+}
+
+static inline loff_t largest_page_offset_less_then(loff_t num)
+{
+	return num - (num & (PAGE_SIZE - 1));
+}
+
+static inline size_t smallest_page_offset_greater_then(size_t num)
+{
+	size_t rem = (num + PAGE_SIZE) & (PAGE_SIZE - 1);
+	return rem == 0 ? num : num + PAGE_SIZE - rem;
+}
 
 static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 					   size_t count)
 {
-	struct fd f = fdget(fd);
-	loff_t pos = f.file->f_pos;
+	struct fd f = cp_fdget_pos(fd);
 	ssize_t ret = -EBADF;
 
-	if (!f.file)
-		return ret;
+	if (f.file) {
+		loff_t pos = file_pos_read(f.file);
+		loff_t fpos = pos;
 
-	ret = orig_sys_read(fd, buf, count);
-	orig_sys_fadvise64(fd, pos, count, POSIX_FADV_DONTNEED);
+		ret = vfs_read(f.file, buf, count, &pos);
+		if (ret >= 0)
+			file_pos_write(f.file, pos);
+		cp_fdput_pos(f);
 
+		// If the number of bytes read is greater than 0
+		if (ret > 0) {
+			/*
+			 *  offset and len must be cache page aligned.
+			 *  Partial pages are deliberately be ignored.
+			 *  https://elixir.bootlin.com/linux/v5.1.4/source/mm/fadvise.c#L120
+			 *
+			 *  Because the this, read with unaligned buffer size
+			 *  will suffer from significant performance
+			 *  degradation.
+			 */
+			loff_t offset = largest_page_offset_less_then(fpos);
+			size_t len = smallest_page_offset_greater_then(ret);
+
+			orig_sys_fadvise64(fd, offset, len,
+					   POSIX_FADV_DONTNEED);
+		}
+	}
 	return ret;
 }
 
