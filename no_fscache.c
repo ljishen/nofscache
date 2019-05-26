@@ -10,20 +10,14 @@
 #include <linux/module.h>
 
 /*
- * Functions to be overwritten.
- */
-static asmlinkage long (*orig_sys_read)(unsigned int fd, char __user *buf,
-					size_t count);
-static asmlinkage long (*orig_sys_write)(unsigned int fd,
-					 const char __user *buf, size_t count);
-
-/*
  * Functions we need but are not exported to used in loadable modules by kernel.
  */
 static asmlinkage long (*orig_sys_fadvise64)(int fd, loff_t offset, size_t len,
 					     int advice);
 static ssize_t (*orig_vfs_read)(struct file *file, char __user *buf,
 				size_t count, loff_t *pos);
+static ssize_t (*orig_vfs_write)(struct file *file, const char __user *buf,
+				 size_t count, loff_t *pos);
 
 static unsigned long __cp_fdget_pos(unsigned int fd)
 {
@@ -46,7 +40,7 @@ static inline struct fd cp_fdget_pos(int fd)
 
 /*
  * File is stream-like
- * See https://elixir.bootlin.com/linux/v5.1.4/source/include/linux/fs.h#L162
+ * See https://elixir.bootlin.com/linux/v5.1.5/source/include/linux/fs.h#L162
  */
 #define FMODE_STREAM ((__force fmode_t)0x200000)
 
@@ -84,6 +78,29 @@ static inline size_t smallest_page_offset_greater_then(size_t num)
 	return rem == 0 ? num : num + PAGE_SIZE - rem;
 }
 
+static int advise_dontneed(unsigned int fd, loff_t *fpos, ssize_t *bytes)
+{
+	loff_t offset;
+	size_t len;
+
+	if (*bytes <= 0)
+		return -EINVAL;
+
+	/*
+	 *  offset and len must be cache page aligned.
+	 *  Partial pages are deliberately be ignored.
+	 *  https://elixir.bootlin.com/linux/v5.1.5/source/mm/fadvise.c#L120
+	 *
+	 *  Because the this, read with unaligned buffer size
+	 *  will suffer from significant performance
+	 *  degradation.
+	 */
+	offset = largest_page_offset_less_then(*fpos);
+	len = smallest_page_offset_greater_then(*bytes);
+
+	return orig_sys_fadvise64(fd, offset, len, POSIX_FADV_DONTNEED);
+}
+
 static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 					   size_t count)
 {
@@ -99,23 +116,7 @@ static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 			file_pos_write(f.file, pos);
 		cp_fdput_pos(f);
 
-		// If the number of bytes read is greater than 0
-		if (ret > 0) {
-			/*
-			 *  offset and len must be cache page aligned.
-			 *  Partial pages are deliberately be ignored.
-			 *  https://elixir.bootlin.com/linux/v5.1.4/source/mm/fadvise.c#L120
-			 *
-			 *  Because the this, read with unaligned buffer size
-			 *  will suffer from significant performance
-			 *  degradation.
-			 */
-			loff_t offset = largest_page_offset_less_then(fpos);
-			size_t len = smallest_page_offset_greater_then(ret);
-
-			orig_sys_fadvise64(fd, offset, len,
-					   POSIX_FADV_DONTNEED);
-		}
+		advise_dontneed(fd, &fpos, &ret);
 	}
 	return ret;
 }
@@ -123,7 +124,22 @@ static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 static asmlinkage long
 no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 {
-	return orig_sys_write(fd, buf, count);
+	struct fd f = cp_fdget_pos(fd);
+	ssize_t ret = -EBADF;
+
+	if (f.file) {
+		loff_t pos = file_pos_read(f.file);
+		loff_t fpos = pos;
+
+		ret = orig_vfs_write(f.file, buf, count, &pos);
+		if (ret >= 0)
+			file_pos_write(f.file, pos);
+		cp_fdput_pos(f);
+
+		advise_dontneed(fd, &fpos, &ret);
+	}
+
+	return ret;
 }
 
 struct func_symbol {
@@ -136,28 +152,50 @@ struct func_symbol {
 		.name = (_name), .func = (_func),                              \
 	}
 
-struct no_fscache_func {
-	struct func_symbol fsym;
-	void *new_func;
-};
-
-#define NO_FSCACHE_FUNC(_old_name, _orig_func, _new_func)                      \
-	{                                                                      \
-		.fsym = FUNC_SYMBOL(_old_name, _orig_func),                    \
-		.new_func = (_new_func),                                       \
-	}
-
-static struct no_fscache_func nf_funcs[] = {
-	NO_FSCACHE_FUNC("sys_read", &orig_sys_read, no_fscache_sys_read),
-	NO_FSCACHE_FUNC("sys_write", &orig_sys_write, no_fscache_sys_write),
-};
-
 static struct func_symbol dept_fsyms[] = {
 	FUNC_SYMBOL("sys_fadvise64", &orig_sys_fadvise64),
 	FUNC_SYMBOL("vfs_read", &orig_vfs_read),
+	FUNC_SYMBOL("vfs_write", &orig_vfs_write),
 };
 
-static struct klp_func funcs[ARRAY_SIZE(nf_funcs) + 1];
+static int fill_func_symbol(struct func_symbol *fsym)
+{
+	unsigned long address = kallsyms_lookup_name(fsym->name);
+
+	if (!address) {
+		pr_err("unresolved symbol: %s\n", fsym->name);
+		return -ENOENT;
+	}
+
+	*((unsigned long *)fsym->func) = address;
+
+	return 0;
+}
+
+static int resolve_func(void)
+{
+	size_t count = ARRAY_SIZE(dept_fsyms);
+	size_t i;
+
+	for (i = 0; i < count; i++) {
+		struct func_symbol *fsym = &dept_fsyms[i];
+		int ret = fill_func_symbol(fsym);
+
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+#define KLP_FUNC(_old_name, _new_func)                                         \
+	{                                                                      \
+		.old_name = (_old_name), .new_func = (_new_func),              \
+	}
+
+static struct klp_func funcs[] = { KLP_FUNC("sys_read", no_fscache_sys_read),
+				   KLP_FUNC("sys_write", no_fscache_sys_write),
+				   {} };
 
 static struct klp_object objs[] = {
 	{
@@ -171,59 +209,6 @@ static struct klp_patch patch = {
 	.mod = THIS_MODULE,
 	.objs = objs,
 };
-
-static void fill_klp_func(struct klp_func *func,
-			  struct no_fscache_func *nf_func)
-{
-	func->old_name = nf_func->fsym.name;
-	func->new_func = nf_func->new_func;
-}
-
-static int fill_func_symbol(struct func_symbol *fsym, bool bypass_mcount)
-{
-	unsigned long address = kallsyms_lookup_name(fsym->name);
-
-	if (!address) {
-		pr_err("unresolved symbol: %s\n", fsym->name);
-		return -ENOENT;
-	}
-
-	*((unsigned long *)fsym->func) = address;
-	if (bypass_mcount)
-		*((unsigned long *)fsym->func) += MCOUNT_INSN_SIZE;
-
-	return 0;
-}
-
-static int resolve_func(void)
-{
-	size_t count = ARRAY_SIZE(nf_funcs);
-	size_t i;
-	int ret;
-
-	for (i = 0; i < count; i++) {
-		struct klp_func *func = &funcs[i];
-		struct no_fscache_func *nf_func = &nf_funcs[i];
-
-		fill_klp_func(func, nf_func);
-
-		ret = fill_func_symbol(&nf_func->fsym, true);
-		if (ret)
-			return ret;
-	}
-
-	count = ARRAY_SIZE(dept_fsyms);
-
-	for (i = 0; i < count; i++) {
-		struct func_symbol *fsym = &dept_fsyms[i];
-
-		ret = fill_func_symbol(fsym, false);
-		if (ret)
-			return ret;
-	}
-
-	return 0;
-}
 
 static int no_fscache_init(void)
 {
