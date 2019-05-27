@@ -92,15 +92,19 @@ static int advise_dontneed(unsigned int fd, loff_t *fpos, size_t *nbytes,
 
 	/*
 	 *  offset and len should be system page size aligned in order to cover
-	 *  all dirty pages. Partial page updates are deliberately be ignored.
+	 *  all dirty pages since partial page updates are deliberately be
+	 *  ignored.
 	 *  For sys_fadvise64():
 	 *	https://elixir.bootlin.com/linux/v5.1.5/source/mm/fadvise.c#L120
 	 *  For sys_sync_file_range2():
 	 *	https://elixir.bootlin.com/linux/v5.1.5/source/mm/page-writeback.c#L2177
 	 *
-	 *  In the case of using an unaligned buffer size, the affected pages
-	 *  will cover more bytes than read or write is working on, and thus
-	 *  the performance will suffer from significant degradation.
+	 *  Because we align the file offset and the number of bytes
+	 *  read()/write() returns to offset of full page size, when the size of
+	 *  buf or the value specified in count is not suitably aligned, the
+	 *  actual bytes to be flushed may be more than the number of bytes
+	 *  that the read()/write() returns, which could result in significant
+	 *  performance degradation.
 	 */
 	offset = largest_page_offset_less_then(*fpos);
 	len = smallest_page_offset_greater_then(*nbytes);
