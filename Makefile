@@ -13,11 +13,21 @@ KERNEL_RELEASE := $(shell uname -r)
 $(MOD).ko: check_kernel
 	make -C $(KERNEL_PATH) M=$(CURDIR) modules
 
+# Code reference for the second check:
+#	https://elixir.bootlin.com/linux/v5.1.5/source/mm/fadvise.c#L191
+#
+# We may need to take care of the other case that the kernel config file could
+# present as /proc/config.gz if the kernel was compiled with CONFIG_IKCONFIG.
 .PHONY: check_kernel
 check_kernel:
 	@if [  "$(KERNEL_RELEASE)" = "$$(printf "$(OLDEST_SUPPORTED_KERNEL)\n$(KERNEL_RELEASE)" | sort -V | head -n1)" ]; then	\
 	    printf "[INFO] This module can only be installed on kernel version >= $(OLDEST_SUPPORTED_KERNEL)\n\n";		\
 	    exit 1;														\
+	fi
+
+	@if ! cat /boot/config-$(KERNEL_RELEASE) | grep CONFIG_ADVISE_SYSCALLS=y > /dev/null 2>&1; then				\
+		printf "[INFO] Kernel config CONFIG_ADVISE_SYSCALLS is disabled.\n\n";						\
+		exit 1;														\
 	fi
 
 .PHONY: debug

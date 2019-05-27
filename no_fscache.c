@@ -12,8 +12,11 @@
 /*
  * Functions we need but are not exported to used in loadable modules by kernel.
  */
-static asmlinkage long (*orig_sys_fadvise64)(int fd, loff_t offset, size_t len,
-					     int advice);
+static asmlinkage long (*orig_sys_fadvise64_64)(int fd, loff_t offset,
+						size_t len, int advice);
+static asmlinkage long (*orig_sys_sync_file_range2)(int fd, unsigned int flags,
+						    loff_t offset,
+						    loff_t nbytes);
 static ssize_t (*orig_vfs_read)(struct file *file, char __user *buf,
 				size_t count, loff_t *pos);
 static ssize_t (*orig_vfs_write)(struct file *file, const char __user *buf,
@@ -78,45 +81,60 @@ static inline size_t smallest_page_offset_greater_then(size_t num)
 	return rem == 0 ? num : num + PAGE_SIZE - rem;
 }
 
-static int advise_dontneed(unsigned int fd, loff_t *fpos, ssize_t *bytes)
+/**
+ * Return: %0 on success, negative error code otherwise
+ */
+static int advise_dontneed(unsigned int fd, loff_t *fpos, size_t *nbytes,
+			   bool flush)
 {
 	loff_t offset;
 	size_t len;
 
-	if (*bytes <= 0)
-		return -EINVAL;
-
 	/*
-	 *  offset and len must be cache page aligned.
-	 *  Partial pages are deliberately be ignored.
-	 *  https://elixir.bootlin.com/linux/v5.1.5/source/mm/fadvise.c#L120
+	 *  offset and len should be system page size aligned in order to cover
+	 *  all dirty pages. Partial page updates are deliberately be ignored.
+	 *  For sys_fadvise64():
+	 *	https://elixir.bootlin.com/linux/v5.1.5/source/mm/fadvise.c#L120
+	 *  For sys_sync_file_range2():
+	 *	https://elixir.bootlin.com/linux/v5.1.5/source/mm/page-writeback.c#L2177
 	 *
-	 *  Because the this, read with unaligned buffer size
-	 *  will suffer from significant performance
-	 *  degradation.
+	 *  In the case of using an unaligned buffer size, the affected pages
+	 *  will cover more bytes than read or write is working on, and thus
+	 *  the performance will suffer from significant degradation.
 	 */
 	offset = largest_page_offset_less_then(*fpos);
-	len = smallest_page_offset_greater_then(*bytes);
+	len = smallest_page_offset_greater_then(*nbytes);
 
-	return orig_sys_fadvise64(fd, offset, len, POSIX_FADV_DONTNEED);
+	if (flush) {
+		int ret = orig_sys_sync_file_range2(
+			fd, SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER,
+			offset, len);
+		if (ret < 0)
+			return ret;
+	}
+
+	return orig_sys_fadvise64_64(fd, offset, len, POSIX_FADV_DONTNEED);
 }
 
 static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 					   size_t count)
 {
 	struct fd f = cp_fdget_pos(fd);
+	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 
-	if (f.file) {
-		loff_t pos = file_pos_read(f.file);
+	if (file) {
+		loff_t pos = file_pos_read(file);
+		umode_t i_mode = file_inode(file)->i_mode;
 		loff_t fpos = pos;
 
-		ret = orig_vfs_read(f.file, buf, count, &pos);
+		ret = orig_vfs_read(file, buf, count, &pos);
 		if (ret >= 0)
-			file_pos_write(f.file, pos);
+			file_pos_write(file, pos);
 		cp_fdput_pos(f);
 
-		advise_dontneed(fd, &fpos, &ret);
+		if (ret > 0 && S_ISREG(i_mode))
+			advise_dontneed(fd, &fpos, &ret, false);
 	}
 	return ret;
 }
@@ -125,18 +143,21 @@ static asmlinkage long
 no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 {
 	struct fd f = cp_fdget_pos(fd);
+	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 
-	if (f.file) {
-		loff_t pos = file_pos_read(f.file);
+	if (file) {
+		loff_t pos = file_pos_read(file);
+		umode_t i_mode = file_inode(file)->i_mode;
 		loff_t fpos = pos;
 
-		ret = orig_vfs_write(f.file, buf, count, &pos);
+		ret = orig_vfs_write(file, buf, count, &pos);
 		if (ret >= 0)
-			file_pos_write(f.file, pos);
+			file_pos_write(file, pos);
 		cp_fdput_pos(f);
 
-		advise_dontneed(fd, &fpos, &ret);
+		if (ret > 0 && S_ISREG(i_mode))
+			advise_dontneed(fd, &fpos, &ret, true);
 	}
 
 	return ret;
@@ -153,7 +174,8 @@ struct func_symbol {
 	}
 
 static struct func_symbol dept_fsyms[] = {
-	FUNC_SYMBOL("sys_fadvise64", &orig_sys_fadvise64),
+	FUNC_SYMBOL("sys_fadvise64_64", &orig_sys_fadvise64_64),
+	FUNC_SYMBOL("sys_sync_file_range2", &orig_sys_sync_file_range2),
 	FUNC_SYMBOL("vfs_read", &orig_vfs_read),
 	FUNC_SYMBOL("vfs_write", &orig_vfs_write),
 };
