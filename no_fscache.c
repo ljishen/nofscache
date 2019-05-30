@@ -118,6 +118,16 @@ static int advise_dontneed(unsigned int fd, loff_t fpos, size_t nbytes,
 	return orig_sys_fadvise64_64(fd, offset, len, POSIX_FADV_DONTNEED);
 }
 
+/**
+ * This function is improved based on io_is_direct() from
+ * https://elixir.bootlin.com/linux/v5.1.5/source/include/linux/fs.h#L3297
+ */
+static inline bool is_direct(struct file *filp)
+{
+	return (filp->f_flags & O_DIRECT) || IS_DAX(filp->f_mapping->host) ||
+	       IS_DAX(file_inode(filp));
+}
+
 static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 					   size_t count)
 {
@@ -134,10 +144,19 @@ static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 			file_pos_write(file, pos);
 		cp_fdput_pos(f);
 
-		if (ret >= 0 && S_ISREG(i_mode))
+		if (ret >= 0 && S_ISREG(i_mode) && !is_direct(file))
 			advise_dontneed(fd, file->f_pos - ret, ret, false);
 	}
 	return ret;
+}
+
+/**
+ * See https://elixir.bootlin.com/linux/v5.1.5/source/include/linux/fs.h#L3321
+ */
+static inline bool is_sync(struct file *filp)
+{
+	return (filp->f_flags & O_DSYNC) || IS_SYNC(filp->f_mapping->host) ||
+	       filp->f_flags & __O_SYNC;
 }
 
 static asmlinkage long
@@ -156,8 +175,13 @@ no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 			file_pos_write(file, pos);
 		cp_fdput_pos(f);
 
-		if (ret > 0 && S_ISREG(i_mode))
-			advise_dontneed(fd, file->f_pos - ret, ret, true);
+		if (ret > 0 && S_ISREG(i_mode) && !is_direct(file))
+			/*
+			 * We don't need to flush the data if it is synced
+			 * already.
+			 */
+			advise_dontneed(fd, file->f_pos - ret, ret,
+					!is_sync(file));
 	}
 
 	return ret;
