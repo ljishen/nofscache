@@ -5,9 +5,12 @@
 
 #include <linux/fadvise.h>
 #include <linux/file.h>
+#include <linux/fsnotify.h>
 #include <linux/kernel.h>
 #include <linux/livepatch.h>
 #include <linux/module.h>
+#include <linux/sched/xacct.h>
+#include <linux/uio.h>
 
 /*
  * Functions we need but are not exported to be used in loadable modules by
@@ -22,6 +25,11 @@ static ssize_t (*orig_vfs_read)(struct file *file, char __user *buf,
 				size_t count, loff_t *pos);
 static ssize_t (*orig_vfs_write)(struct file *file, const char __user *buf,
 				 size_t count, loff_t *pos);
+static ssize_t (*orig_vfs_readv)(struct file *file,
+				 const struct iovec __user *vec,
+				 unsigned long vlen, loff_t *pos, rwf_t flags);
+static int (*rw_verify_area)(int read_write, struct file *file,
+			     const loff_t *ppos, size_t count);
 
 static unsigned long __cp_fdget_pos(unsigned int fd)
 {
@@ -150,6 +158,29 @@ static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 	return ret;
 }
 
+static asmlinkage long no_fscache_sys_readv(unsigned long fd,
+					    const struct iovec __user *vec,
+					    unsigned long vlen)
+{
+	struct fd f = cp_fdget_pos(fd);
+	ssize_t ret = -EBADF;
+	rwf_t flags = 0;
+
+	if (f.file) {
+		loff_t pos = file_pos_read(f.file);
+
+		ret = orig_vfs_readv(f.file, vec, vlen, &pos, flags);
+		if (ret >= 0)
+			file_pos_write(f.file, pos);
+		cp_fdput_pos(f);
+	}
+
+	if (ret > 0)
+		add_rchar(current, ret);
+	inc_syscr(current);
+	return ret;
+}
+
 /**
  * See https://elixir.bootlin.com/linux/v5.1.5/source/include/linux/fs.h#L3321
  */
@@ -187,6 +218,130 @@ no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 	return ret;
 }
 
+static ssize_t do_iter_readv_writev(struct file *filp, struct iov_iter *iter,
+				    loff_t *ppos, int type, rwf_t flags)
+{
+	struct kiocb kiocb;
+	ssize_t ret;
+
+	init_sync_kiocb(&kiocb, filp);
+	ret = kiocb_set_rw_flags(&kiocb, flags);
+	if (ret)
+		return ret;
+	kiocb.ki_pos = *ppos;
+
+	if (type == READ)
+		ret = call_read_iter(filp, &kiocb, iter);
+	else
+		ret = call_write_iter(filp, &kiocb, iter);
+	BUG_ON(ret == -EIOCBQUEUED);
+	*ppos = kiocb.ki_pos;
+	return ret;
+}
+
+/* Do it by hand, with file-ops */
+static ssize_t do_loop_readv_writev(struct file *filp, struct iov_iter *iter,
+				    loff_t *ppos, int type, rwf_t flags)
+{
+	ssize_t ret = 0;
+
+	if (flags & ~RWF_HIPRI)
+		return -EOPNOTSUPP;
+
+	while (iov_iter_count(iter)) {
+		struct iovec iovec = iov_iter_iovec(iter);
+		ssize_t nr;
+
+		if (type == READ) {
+			nr = filp->f_op->read(filp, iovec.iov_base,
+					      iovec.iov_len, ppos);
+		} else {
+			nr = filp->f_op->write(filp, iovec.iov_base,
+					       iovec.iov_len, ppos);
+		}
+
+		if (nr < 0) {
+			if (!ret)
+				ret = nr;
+			break;
+		}
+		ret += nr;
+		if (nr != iovec.iov_len)
+			break;
+		iov_iter_advance(iter, nr);
+	}
+
+	return ret;
+}
+
+static ssize_t do_iter_write(struct file *file, struct iov_iter *iter,
+			     loff_t *pos, rwf_t flags)
+{
+	size_t tot_len;
+	ssize_t ret = 0;
+
+	if (!(file->f_mode & FMODE_WRITE))
+		return -EBADF;
+	if (!(file->f_mode & FMODE_CAN_WRITE))
+		return -EINVAL;
+
+	tot_len = iov_iter_count(iter);
+	if (!tot_len)
+		return 0;
+	ret = rw_verify_area(WRITE, file, pos, tot_len);
+	if (ret < 0)
+		return ret;
+
+	if (file->f_op->write_iter)
+		ret = do_iter_readv_writev(file, iter, pos, WRITE, flags);
+	else
+		ret = do_loop_readv_writev(file, iter, pos, WRITE, flags);
+	if (ret > 0)
+		fsnotify_modify(file);
+	return ret;
+}
+
+static ssize_t vfs_writev(struct file *file, const struct iovec __user *vec,
+			  unsigned long vlen, loff_t *pos, rwf_t flags)
+{
+	struct iovec iovstack[UIO_FASTIOV];
+	struct iovec *iov = iovstack;
+	struct iov_iter iter;
+	ssize_t ret;
+
+	ret = import_iovec(WRITE, vec, vlen, ARRAY_SIZE(iovstack), &iov, &iter);
+	if (ret >= 0) {
+		file_start_write(file);
+		ret = do_iter_write(file, &iter, pos, flags);
+		file_end_write(file);
+		kfree(iov);
+	}
+	return ret;
+}
+
+static asmlinkage long no_fscache_sys_writev(unsigned long fd,
+					     const struct iovec __user *vec,
+					     unsigned long vlen)
+{
+	struct fd f = cp_fdget_pos(fd);
+	ssize_t ret = -EBADF;
+	rwf_t flags = 0;
+
+	if (f.file) {
+		loff_t pos = file_pos_read(f.file);
+
+		ret = vfs_writev(f.file, vec, vlen, &pos, flags);
+		if (ret >= 0)
+			file_pos_write(f.file, pos);
+		cp_fdput_pos(f);
+	}
+
+	if (ret > 0)
+		add_wchar(current, ret);
+	inc_syscw(current);
+	return ret;
+}
+
 struct func_symbol {
 	const char *name;
 	void *func;
@@ -202,6 +357,8 @@ static struct func_symbol dept_fsyms[] = {
 	FUNC_SYMBOL("sys_sync_file_range2", &orig_sys_sync_file_range2),
 	FUNC_SYMBOL("vfs_read", &orig_vfs_read),
 	FUNC_SYMBOL("vfs_write", &orig_vfs_write),
+	FUNC_SYMBOL("vfs_readv", &orig_vfs_readv),
+	FUNC_SYMBOL("rw_verify_area", &rw_verify_area),
 };
 
 static int fill_func_symbol(struct func_symbol *fsym)
@@ -241,6 +398,9 @@ static int resolve_func(void)
 
 static struct klp_func funcs[] = { KLP_FUNC("sys_read", no_fscache_sys_read),
 				   KLP_FUNC("sys_write", no_fscache_sys_write),
+				   KLP_FUNC("sys_readv", no_fscache_sys_readv),
+				   KLP_FUNC("sys_writev",
+					    no_fscache_sys_writev),
 				   {} };
 
 static struct klp_object objs[] = {
