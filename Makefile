@@ -67,11 +67,21 @@ uninstall:
 else
 .PHONY: enable
 enable:
-	-echo 1 | sudo tee $(MOD_SYSFS_IF)/enabled > /dev/null 2>&1
+	-@if echo 1 | sudo tee $(MOD_SYSFS_IF)/enabled > /dev/null 2>&1; then	\
+		printf "[INFO] module $(MOD) is now enabled.\n";		\
+	else									\
+		printf "[INFO] module $(MOD) is already enabled.\n\n";		\
+		exit 1;								\
+	fi
 
 .PHONY: disable
 disable:
-	-echo 0 | sudo tee $(MOD_SYSFS_IF)/enabled > /dev/null 2>&1
+	-@if echo 0 | sudo tee $(MOD_SYSFS_IF)/enabled > /dev/null 2>&1; then	\
+		printf "[INFO] module $(MOD) is now disabled.\n";		\
+	else									\
+		printf "[INFO] module $(MOD) is already disabled.\n\n";		\
+		exit 1;								\
+	fi
 
 .PHONY: rmmod
 rmmod: disable check_state
