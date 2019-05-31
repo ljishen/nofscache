@@ -216,6 +216,46 @@ static asmlinkage long no_fscache_sys_pread64(unsigned int fd, char __user *buf,
 	return ret;
 }
 
+static inline loff_t pos_from_hilo(unsigned long high, unsigned long low)
+{
+#define HALF_LONG_BITS (BITS_PER_LONG / 2)
+	return (((loff_t)high << HALF_LONG_BITS) << HALF_LONG_BITS) | low;
+}
+
+static ssize_t do_preadv(unsigned long fd, const struct iovec __user *vec,
+			 unsigned long vlen, loff_t pos, rwf_t flags)
+{
+	struct fd f;
+	ssize_t ret = -EBADF;
+
+	if (pos < 0)
+		return -EINVAL;
+
+	f = fdget(fd);
+	if (f.file) {
+		ret = -ESPIPE;
+		if (f.file->f_mode & FMODE_PREAD)
+			ret = orig_vfs_readv(f.file, vec, vlen, &pos, flags);
+		fdput(f);
+	}
+
+	if (ret > 0)
+		add_rchar(current, ret);
+	inc_syscr(current);
+	return ret;
+}
+
+static asmlinkage long no_fscache_sys_preadv(unsigned long fd,
+					     const struct iovec __user *vec,
+					     unsigned long vlen,
+					     unsigned long pos_l,
+					     unsigned long pos_h)
+{
+	loff_t pos = pos_from_hilo(pos_h, pos_l);
+
+	return do_preadv(fd, vec, vlen, pos, 0);
+}
+
 /**
  * See https://elixir.bootlin.com/linux/v5.1.5/source/include/linux/fs.h#L3321
  */
@@ -412,6 +452,40 @@ static asmlinkage long no_fscache_sys_pwrite64(unsigned int fd,
 	return ret;
 }
 
+static ssize_t do_pwritev(unsigned long fd, const struct iovec __user *vec,
+			  unsigned long vlen, loff_t pos, rwf_t flags)
+{
+	struct fd f;
+	ssize_t ret = -EBADF;
+
+	if (pos < 0)
+		return -EINVAL;
+
+	f = fdget(fd);
+	if (f.file) {
+		ret = -ESPIPE;
+		if (f.file->f_mode & FMODE_PWRITE)
+			ret = vfs_writev(f.file, vec, vlen, &pos, flags);
+		fdput(f);
+	}
+
+	if (ret > 0)
+		add_wchar(current, ret);
+	inc_syscw(current);
+	return ret;
+}
+
+static asmlinkage long no_fscache_sys_pwritev(unsigned long fd,
+					      const struct iovec __user *vec,
+					      unsigned long vlen,
+					      unsigned long pos_l,
+					      unsigned long pos_h)
+{
+	loff_t pos = pos_from_hilo(pos_h, pos_l);
+
+	return do_pwritev(fd, vec, vlen, pos, 0);
+}
+
 struct func_symbol {
 	const char *name;
 	void *func;
@@ -473,6 +547,8 @@ static struct klp_func funcs[] = {
 	KLP_FUNC("sys_writev", no_fscache_sys_writev),
 	KLP_FUNC("sys_pread64", no_fscache_sys_pread64),
 	KLP_FUNC("sys_pwrite64", no_fscache_sys_pwrite64),
+	KLP_FUNC("sys_preadv", no_fscache_sys_preadv),
+	KLP_FUNC("sys_pwritev", no_fscache_sys_pwritev),
 	{}
 };
 
