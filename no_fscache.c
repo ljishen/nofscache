@@ -90,9 +90,7 @@ static inline size_t nearest_right_page_boundary(size_t offset)
 	return rem == 0 ? offset : offset + PAGE_SIZE - rem;
 }
 
-/**
- * Return: %0 on success, negative error code otherwise
- */
+/* Return: %0 on success, negative error code otherwise */
 static int advise_dontneed(unsigned int fd, loff_t fpos, size_t nbytes,
 			   bool flush)
 {
@@ -112,23 +110,33 @@ static int advise_dontneed(unsigned int fd, loff_t fpos, size_t nbytes,
 	 *  in order to cover all dirty pages since partial page updates are
 	 *  deliberately be ignored.
 	 *  For sys_fadvise64():
-	 *	https://elixir.bootlin.com/linux/v5.1.5/source/mm/fadvise.c#L120
+	 *	https://elixir.bootlin.com/linux/v5.1.6/source/mm/fadvise.c#L120
 	 *
 	 *  Since we align the file offset and nbytes to the nearest page
 	 *  boundary, when the size of buf or the value specified in count is
 	 *  not suitably aligned, the actual bytes to be flushed may be more
-	 *  than the number of bytes that the read()/write() returns, which
-	 *  could result in performance degradation.
+	 *  than the number of bytes that read()/write() returns, which could
+	 *  result in performance degradation.
 	 */
 	offset = nearest_left_page_boundary(fpos);
 	len = nearest_right_page_boundary(nbytes + fpos) - offset;
 
-	return orig_sys_fadvise64_64(fd, offset, len, POSIX_FADV_DONTNEED);
+	if (len)
+		return orig_sys_fadvise64_64(fd, offset, len,
+					     POSIX_FADV_DONTNEED);
+	else
+		/* If len is 0, there is no page need to be flushed. */
+		return 0;
 }
 
-/**
- * This function is improved based on io_is_direct() from
- * https://elixir.bootlin.com/linux/v5.1.5/source/include/linux/fs.h#L3297
+/*
+ * This function is enhanced based on
+ * io_is_direct() from
+ *	https://elixir.bootlin.com/linux/v5.1.6/source/include/linux/fs.h#L3297
+ * xfs_file_read_iter() from
+ *	https://elixir.bootlin.com/linux/v5.1.6/source/fs/xfs/xfs_file.c#L252
+ * and xfs_file_write_iter() from
+ *	https://elixir.bootlin.com/linux/v5.1.6/source/fs/xfs/xfs_file.c#L692
  */
 static inline bool is_direct(struct file *filp)
 {
@@ -266,13 +274,16 @@ static asmlinkage long no_fscache_sys_preadv(unsigned long fd,
 	return do_preadv(fd, vec, vlen, pos, 0);
 }
 
-/**
- * See https://elixir.bootlin.com/linux/v5.1.5/source/include/linux/fs.h#L3321
+/*
+ * See https://elixir.bootlin.com/linux/v5.1.6/source/include/linux/fs.h#L3321
+ *     https://elixir.bootlin.com/linux/v5.1.6/source/include/linux/fs.h#L2793
+ *
+ * Note that if O_SYNC is true, than O_DSYNC must be true.
+ * See https://elixir.bootlin.com/linux/v5.1.6/source/include/uapi/asm-generic/fcntl.h#L74
  */
 static inline bool is_sync(struct file *filp)
 {
-	return (filp->f_flags & O_DSYNC) || IS_SYNC(filp->f_mapping->host) ||
-	       filp->f_flags & __O_SYNC;
+	return (filp->f_flags & O_DSYNC) || IS_SYNC(filp->f_mapping->host);
 }
 
 static inline void advise_dontneed_after_write(ssize_t ret, struct file *file,
