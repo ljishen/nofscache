@@ -52,7 +52,7 @@ static inline struct fd cp_fdget_pos(int fd)
 
 /*
  * File is stream-like
- * See https://elixir.bootlin.com/linux/v5.1.5/source/include/linux/fs.h#L162
+ * See https://elixir.bootlin.com/linux/v5.1.6/source/include/linux/fs.h#L162
  */
 #define FMODE_STREAM ((__force fmode_t)0x200000)
 
@@ -137,12 +137,12 @@ static inline bool is_direct(struct file *filp)
 }
 
 static inline void advise_dontneed_after_read(ssize_t ret, struct file *file,
-					      unsigned int fd, loff_t pos)
+					      unsigned int fd, loff_t lpos)
 {
 	umode_t i_mode = file_inode(file)->i_mode;
 
 	if (ret >= 0 && S_ISREG(i_mode) && !is_direct(file))
-		advise_dontneed(fd, pos - ret, ret, false);
+		advise_dontneed(fd, lpos - ret, ret, false);
 }
 
 static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
@@ -165,14 +165,12 @@ static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 	return ret;
 }
 
-static asmlinkage long no_fscache_sys_readv(unsigned long fd,
-					    const struct iovec __user *vec,
-					    unsigned long vlen)
+static ssize_t do_readv(unsigned long fd, const struct iovec __user *vec,
+			unsigned long vlen, rwf_t flags)
 {
 	struct fd f = cp_fdget_pos(fd);
 	struct file *file = f.file;
 	ssize_t ret = -EBADF;
-	rwf_t flags = 0;
 
 	if (file) {
 		loff_t pos = file_pos_read(file);
@@ -189,6 +187,13 @@ static asmlinkage long no_fscache_sys_readv(unsigned long fd,
 		add_rchar(current, ret);
 	inc_syscr(current);
 	return ret;
+}
+
+static asmlinkage long no_fscache_sys_readv(unsigned long fd,
+					    const struct iovec __user *vec,
+					    unsigned long vlen)
+{
+	return do_readv(fd, vec, vlen, 0);
 }
 
 static asmlinkage long no_fscache_sys_pread64(unsigned int fd, char __user *buf,
@@ -226,17 +231,22 @@ static ssize_t do_preadv(unsigned long fd, const struct iovec __user *vec,
 			 unsigned long vlen, loff_t pos, rwf_t flags)
 {
 	struct fd f;
+	struct file *file;
 	ssize_t ret = -EBADF;
 
 	if (pos < 0)
 		return -EINVAL;
 
 	f = fdget(fd);
-	if (f.file) {
+	file = f.file;
+
+	if (file) {
 		ret = -ESPIPE;
-		if (f.file->f_mode & FMODE_PREAD)
-			ret = orig_vfs_readv(f.file, vec, vlen, &pos, flags);
+		if (file->f_mode & FMODE_PREAD)
+			ret = orig_vfs_readv(file, vec, vlen, &pos, flags);
 		fdput(f);
+
+		advise_dontneed_after_read(ret, file, fd, pos);
 	}
 
 	if (ret > 0)
@@ -400,14 +410,12 @@ static ssize_t vfs_writev(struct file *file, const struct iovec __user *vec,
 	return ret;
 }
 
-static asmlinkage long no_fscache_sys_writev(unsigned long fd,
-					     const struct iovec __user *vec,
-					     unsigned long vlen)
+static ssize_t do_writev(unsigned long fd, const struct iovec __user *vec,
+			 unsigned long vlen, rwf_t flags)
 {
 	struct fd f = cp_fdget_pos(fd);
 	struct file *file = f.file;
 	ssize_t ret = -EBADF;
-	rwf_t flags = 0;
 
 	if (file) {
 		loff_t pos = file_pos_read(file);
@@ -424,6 +432,13 @@ static asmlinkage long no_fscache_sys_writev(unsigned long fd,
 		add_wchar(current, ret);
 	inc_syscw(current);
 	return ret;
+}
+
+static asmlinkage long no_fscache_sys_writev(unsigned long fd,
+					     const struct iovec __user *vec,
+					     unsigned long vlen)
+{
+	return do_writev(fd, vec, vlen, 0);
 }
 
 static asmlinkage long no_fscache_sys_pwrite64(unsigned int fd,
@@ -456,17 +471,22 @@ static ssize_t do_pwritev(unsigned long fd, const struct iovec __user *vec,
 			  unsigned long vlen, loff_t pos, rwf_t flags)
 {
 	struct fd f;
+	struct file *file;
 	ssize_t ret = -EBADF;
 
 	if (pos < 0)
 		return -EINVAL;
 
 	f = fdget(fd);
-	if (f.file) {
+	file = f.file;
+
+	if (file) {
 		ret = -ESPIPE;
-		if (f.file->f_mode & FMODE_PWRITE)
-			ret = vfs_writev(f.file, vec, vlen, &pos, flags);
+		if (file->f_mode & FMODE_PWRITE)
+			ret = vfs_writev(file, vec, vlen, &pos, flags);
 		fdput(f);
+
+		advise_dontneed_after_write(ret, file, fd, pos);
 	}
 
 	if (ret > 0)
