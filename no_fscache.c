@@ -190,17 +190,25 @@ static asmlinkage long no_fscache_sys_pread64(unsigned int fd, char __user *buf,
 					      size_t count, loff_t pos)
 {
 	struct fd f;
+	struct file *file;
 	ssize_t ret = -EBADF;
 
 	if (pos < 0)
 		return -EINVAL;
 
 	f = fdget(fd);
-	if (f.file) {
+	file = f.file;
+
+	if (file) {
+		umode_t i_mode = file_inode(file)->i_mode;
+
 		ret = -ESPIPE;
-		if (f.file->f_mode & FMODE_PREAD)
-			ret = orig_vfs_read(f.file, buf, count, &pos);
+		if (file->f_mode & FMODE_PREAD)
+			ret = orig_vfs_read(file, buf, count, &pos);
 		fdput(f);
+
+		if (ret >= 0 && S_ISREG(i_mode) && !is_direct(file))
+			advise_dontneed(fd, pos - ret, ret, false);
 	}
 
 	return ret;
@@ -382,17 +390,29 @@ static asmlinkage long no_fscache_sys_pwrite64(unsigned int fd,
 					       size_t count, loff_t pos)
 {
 	struct fd f;
+	struct file *file;
 	ssize_t ret = -EBADF;
 
 	if (pos < 0)
 		return -EINVAL;
 
 	f = fdget(fd);
-	if (f.file) {
+	file = f.file;
+
+	if (file) {
+		umode_t i_mode = file_inode(file)->i_mode;
+
 		ret = -ESPIPE;
-		if (f.file->f_mode & FMODE_PWRITE)
-			ret = orig_vfs_write(f.file, buf, count, &pos);
+		if (file->f_mode & FMODE_PWRITE)
+			ret = orig_vfs_write(file, buf, count, &pos);
 		fdput(f);
+
+		if (ret > 0 && S_ISREG(i_mode) && !is_direct(file))
+			/*
+			 * We don't need to flush the data if it is synced
+			 * already.
+			 */
+			advise_dontneed(fd, pos - ret, ret, !is_sync(file));
 	}
 
 	return ret;
