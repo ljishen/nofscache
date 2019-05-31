@@ -186,6 +186,26 @@ static asmlinkage long no_fscache_sys_readv(unsigned long fd,
 	return ret;
 }
 
+static asmlinkage long no_fscache_sys_pread64(unsigned int fd, char __user *buf,
+					      size_t count, loff_t pos)
+{
+	struct fd f;
+	ssize_t ret = -EBADF;
+
+	if (pos < 0)
+		return -EINVAL;
+
+	f = fdget(fd);
+	if (f.file) {
+		ret = -ESPIPE;
+		if (f.file->f_mode & FMODE_PREAD)
+			ret = orig_vfs_read(f.file, buf, count, &pos);
+		fdput(f);
+	}
+
+	return ret;
+}
+
 /**
  * See https://elixir.bootlin.com/linux/v5.1.5/source/include/linux/fs.h#L3321
  */
@@ -357,6 +377,27 @@ static asmlinkage long no_fscache_sys_writev(unsigned long fd,
 	return ret;
 }
 
+static asmlinkage long no_fscache_sys_pwrite64(unsigned int fd,
+					       const char __user *buf,
+					       size_t count, loff_t pos)
+{
+	struct fd f;
+	ssize_t ret = -EBADF;
+
+	if (pos < 0)
+		return -EINVAL;
+
+	f = fdget(fd);
+	if (f.file) {
+		ret = -ESPIPE;
+		if (f.file->f_mode & FMODE_PWRITE)
+			ret = orig_vfs_write(f.file, buf, count, &pos);
+		fdput(f);
+	}
+
+	return ret;
+}
+
 struct func_symbol {
 	const char *name;
 	void *func;
@@ -411,12 +452,15 @@ static int resolve_func(void)
 		.old_name = (_old_name), .new_func = (_new_func),              \
 	}
 
-static struct klp_func funcs[] = { KLP_FUNC("sys_read", no_fscache_sys_read),
-				   KLP_FUNC("sys_write", no_fscache_sys_write),
-				   KLP_FUNC("sys_readv", no_fscache_sys_readv),
-				   KLP_FUNC("sys_writev",
-					    no_fscache_sys_writev),
-				   {} };
+static struct klp_func funcs[] = {
+	KLP_FUNC("sys_read", no_fscache_sys_read),
+	KLP_FUNC("sys_write", no_fscache_sys_write),
+	KLP_FUNC("sys_readv", no_fscache_sys_readv),
+	KLP_FUNC("sys_writev", no_fscache_sys_writev),
+	KLP_FUNC("sys_pread64", no_fscache_sys_pread64),
+	KLP_FUNC("sys_pwrite64", no_fscache_sys_pwrite64),
+	{}
+};
 
 static struct klp_object objs[] = {
 	{
