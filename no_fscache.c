@@ -31,7 +31,7 @@ static ssize_t (*orig_vfs_readv)(struct file *file,
 static int (*rw_verify_area)(int read_write, struct file *file,
 			     const loff_t *ppos, size_t count);
 
-static unsigned long __cp_fdget_pos(unsigned int fd)
+static unsigned long __orig_fdget_pos(unsigned int fd)
 {
 	unsigned long v = __fdget(fd);
 	struct file *file = (struct file *)(v & ~3);
@@ -45,9 +45,9 @@ static unsigned long __cp_fdget_pos(unsigned int fd)
 	return v;
 }
 
-static inline struct fd cp_fdget_pos(int fd)
+static inline struct fd orig_fdget_pos(int fd)
 {
-	return __to_fd(__cp_fdget_pos(fd));
+	return __to_fd(__orig_fdget_pos(fd));
 }
 
 /*
@@ -67,15 +67,15 @@ static inline void file_pos_write(struct file *file, loff_t pos)
 		file->f_pos = pos;
 }
 
-static void __cp_f_unlock_pos(struct file *f)
+static void __orig_f_unlock_pos(struct file *f)
 {
 	mutex_unlock(&f->f_pos_lock);
 }
 
-static inline void cp_fdput_pos(struct fd f)
+static inline void orig_fdput_pos(struct fd f)
 {
 	if (f.flags & FDPUT_POS_UNLOCK)
-		__cp_f_unlock_pos(f.file);
+		__orig_f_unlock_pos(f.file);
 	fdput(f);
 }
 
@@ -156,7 +156,7 @@ static inline void advise_dontneed_after_read(ssize_t ret, struct file *file,
 static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 					   size_t count)
 {
-	struct fd f = cp_fdget_pos(fd);
+	struct fd f = orig_fdget_pos(fd);
 	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 
@@ -166,7 +166,7 @@ static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 		ret = orig_vfs_read(file, buf, count, &pos);
 		if (ret >= 0)
 			file_pos_write(file, pos);
-		cp_fdput_pos(f);
+		orig_fdput_pos(f);
 
 		advise_dontneed_after_read(ret, file, fd, file->f_pos);
 	}
@@ -176,7 +176,7 @@ static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 static ssize_t do_readv(unsigned long fd, const struct iovec __user *vec,
 			unsigned long vlen, rwf_t flags)
 {
-	struct fd f = cp_fdget_pos(fd);
+	struct fd f = orig_fdget_pos(fd);
 	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 
@@ -186,7 +186,7 @@ static ssize_t do_readv(unsigned long fd, const struct iovec __user *vec,
 		ret = orig_vfs_readv(file, vec, vlen, &pos, flags);
 		if (ret >= 0)
 			file_pos_write(file, pos);
-		cp_fdput_pos(f);
+		orig_fdput_pos(f);
 
 		advise_dontneed_after_read(ret, file, fd, file->f_pos);
 	}
@@ -302,7 +302,7 @@ static inline void advise_dontneed_after_write(ssize_t ret, struct file *file,
 static asmlinkage long
 no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 {
-	struct fd f = cp_fdget_pos(fd);
+	struct fd f = orig_fdget_pos(fd);
 	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 
@@ -312,7 +312,7 @@ no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 		ret = orig_vfs_write(file, buf, count, &pos);
 		if (ret >= 0)
 			file_pos_write(file, pos);
-		cp_fdput_pos(f);
+		orig_fdput_pos(f);
 
 		advise_dontneed_after_write(ret, file, fd, file->f_pos);
 	}
@@ -424,7 +424,7 @@ static ssize_t vfs_writev(struct file *file, const struct iovec __user *vec,
 static ssize_t do_writev(unsigned long fd, const struct iovec __user *vec,
 			 unsigned long vlen, rwf_t flags)
 {
-	struct fd f = cp_fdget_pos(fd);
+	struct fd f = orig_fdget_pos(fd);
 	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 
@@ -434,7 +434,7 @@ static ssize_t do_writev(unsigned long fd, const struct iovec __user *vec,
 		ret = vfs_writev(file, vec, vlen, &pos, flags);
 		if (ret >= 0)
 			file_pos_write(file, pos);
-		cp_fdput_pos(f);
+		orig_fdput_pos(f);
 
 		advise_dontneed_after_write(ret, file, fd, file->f_pos);
 	}
