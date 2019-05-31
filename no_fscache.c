@@ -163,16 +163,21 @@ static asmlinkage long no_fscache_sys_readv(unsigned long fd,
 					    unsigned long vlen)
 {
 	struct fd f = cp_fdget_pos(fd);
+	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 	rwf_t flags = 0;
 
-	if (f.file) {
-		loff_t pos = file_pos_read(f.file);
+	if (file) {
+		loff_t pos = file_pos_read(file);
+		umode_t i_mode = file_inode(file)->i_mode;
 
-		ret = orig_vfs_readv(f.file, vec, vlen, &pos, flags);
+		ret = orig_vfs_readv(file, vec, vlen, &pos, flags);
 		if (ret >= 0)
-			file_pos_write(f.file, pos);
+			file_pos_write(file, pos);
 		cp_fdput_pos(f);
+
+		if (ret >= 0 && S_ISREG(i_mode) && !is_direct(file))
+			advise_dontneed(fd, file->f_pos - ret, ret, false);
 	}
 
 	if (ret > 0)
@@ -324,16 +329,26 @@ static asmlinkage long no_fscache_sys_writev(unsigned long fd,
 					     unsigned long vlen)
 {
 	struct fd f = cp_fdget_pos(fd);
+	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 	rwf_t flags = 0;
 
-	if (f.file) {
-		loff_t pos = file_pos_read(f.file);
+	if (file) {
+		loff_t pos = file_pos_read(file);
+		umode_t i_mode = file_inode(file)->i_mode;
 
-		ret = vfs_writev(f.file, vec, vlen, &pos, flags);
+		ret = vfs_writev(file, vec, vlen, &pos, flags);
 		if (ret >= 0)
-			file_pos_write(f.file, pos);
+			file_pos_write(file, pos);
 		cp_fdput_pos(f);
+
+		if (ret > 0 && S_ISREG(i_mode) && !is_direct(file))
+			/*
+			 * We don't need to flush the data if it is synced
+			 * already.
+			 */
+			advise_dontneed(fd, file->f_pos - ret, ret,
+					!is_sync(file));
 	}
 
 	if (ret > 0)
