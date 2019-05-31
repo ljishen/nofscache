@@ -274,6 +274,20 @@ static asmlinkage long no_fscache_sys_preadv(unsigned long fd,
 	return do_preadv(fd, vec, vlen, pos, 0);
 }
 
+static asmlinkage long no_fscache_sys_preadv2(unsigned long fd,
+					      const struct iovec __user *vec,
+					      unsigned long vlen,
+					      unsigned long pos_l,
+					      unsigned long pos_h, rwf_t flags)
+{
+	loff_t pos = pos_from_hilo(pos_h, pos_l);
+
+	if (pos == -1)
+		return do_readv(fd, vec, vlen, flags);
+
+	return do_preadv(fd, vec, vlen, pos, flags);
+}
+
 /*
  * See https://elixir.bootlin.com/linux/v5.1.6/source/include/linux/fs.h#L3321
  *     https://elixir.bootlin.com/linux/v5.1.6/source/include/linux/fs.h#L2793
@@ -517,6 +531,20 @@ static asmlinkage long no_fscache_sys_pwritev(unsigned long fd,
 	return do_pwritev(fd, vec, vlen, pos, 0);
 }
 
+static asmlinkage long no_fscache_sys_pwritev2(unsigned long fd,
+					       const struct iovec __user *vec,
+					       unsigned long vlen,
+					       unsigned long pos_l,
+					       unsigned long pos_h, rwf_t flags)
+{
+	loff_t pos = pos_from_hilo(pos_h, pos_l);
+
+	if (pos == -1)
+		return do_writev(fd, vec, vlen, flags);
+
+	return do_pwritev(fd, vec, vlen, pos, flags);
+}
+
 struct func_symbol {
 	const char *name;
 	void *func;
@@ -580,6 +608,8 @@ static struct klp_func funcs[] = {
 	KLP_FUNC("sys_pwrite64", no_fscache_sys_pwrite64),
 	KLP_FUNC("sys_preadv", no_fscache_sys_preadv),
 	KLP_FUNC("sys_pwritev", no_fscache_sys_pwritev),
+	KLP_FUNC("sys_preadv2", no_fscache_sys_preadv2),
+	KLP_FUNC("sys_pwritev2", no_fscache_sys_pwritev2),
 	{}
 };
 
