@@ -136,6 +136,15 @@ static inline bool is_direct(struct file *filp)
 	       IS_DAX(file_inode(filp));
 }
 
+static inline void advise_dontneed_after_read(ssize_t ret, struct file *file,
+					      unsigned int fd, loff_t pos)
+{
+	umode_t i_mode = file_inode(file)->i_mode;
+
+	if (ret >= 0 && S_ISREG(i_mode) && !is_direct(file))
+		advise_dontneed(fd, pos - ret, ret, false);
+}
+
 static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 					   size_t count)
 {
@@ -145,15 +154,13 @@ static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 
 	if (file) {
 		loff_t pos = file_pos_read(file);
-		umode_t i_mode = file_inode(file)->i_mode;
 
 		ret = orig_vfs_read(file, buf, count, &pos);
 		if (ret >= 0)
 			file_pos_write(file, pos);
 		cp_fdput_pos(f);
 
-		if (ret >= 0 && S_ISREG(i_mode) && !is_direct(file))
-			advise_dontneed(fd, file->f_pos - ret, ret, false);
+		advise_dontneed_after_read(ret, file, fd, file->f_pos);
 	}
 	return ret;
 }
@@ -169,15 +176,13 @@ static asmlinkage long no_fscache_sys_readv(unsigned long fd,
 
 	if (file) {
 		loff_t pos = file_pos_read(file);
-		umode_t i_mode = file_inode(file)->i_mode;
 
 		ret = orig_vfs_readv(file, vec, vlen, &pos, flags);
 		if (ret >= 0)
 			file_pos_write(file, pos);
 		cp_fdput_pos(f);
 
-		if (ret >= 0 && S_ISREG(i_mode) && !is_direct(file))
-			advise_dontneed(fd, file->f_pos - ret, ret, false);
+		advise_dontneed_after_read(ret, file, fd, file->f_pos);
 	}
 
 	if (ret > 0)
@@ -200,15 +205,12 @@ static asmlinkage long no_fscache_sys_pread64(unsigned int fd, char __user *buf,
 	file = f.file;
 
 	if (file) {
-		umode_t i_mode = file_inode(file)->i_mode;
-
 		ret = -ESPIPE;
 		if (file->f_mode & FMODE_PREAD)
 			ret = orig_vfs_read(file, buf, count, &pos);
 		fdput(f);
 
-		if (ret >= 0 && S_ISREG(i_mode) && !is_direct(file))
-			advise_dontneed(fd, pos - ret, ret, false);
+		advise_dontneed_after_read(ret, file, fd, pos);
 	}
 
 	return ret;
@@ -223,6 +225,19 @@ static inline bool is_sync(struct file *filp)
 	       filp->f_flags & __O_SYNC;
 }
 
+static inline void advise_dontneed_after_write(ssize_t ret, struct file *file,
+					       unsigned int fd, loff_t pos)
+{
+	umode_t i_mode = file_inode(file)->i_mode;
+
+	if (ret > 0 && S_ISREG(i_mode) && !is_direct(file))
+		/*
+		 * We don't need to flush the data if it is synced
+		 * already.
+		 */
+		advise_dontneed(fd, pos - ret, ret, !is_sync(file));
+}
+
 static asmlinkage long
 no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 {
@@ -232,20 +247,13 @@ no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 
 	if (file) {
 		loff_t pos = file_pos_read(file);
-		umode_t i_mode = file_inode(file)->i_mode;
 
 		ret = orig_vfs_write(file, buf, count, &pos);
 		if (ret >= 0)
 			file_pos_write(file, pos);
 		cp_fdput_pos(f);
 
-		if (ret > 0 && S_ISREG(i_mode) && !is_direct(file))
-			/*
-			 * We don't need to flush the data if it is synced
-			 * already.
-			 */
-			advise_dontneed(fd, file->f_pos - ret, ret,
-					!is_sync(file));
+		advise_dontneed_after_write(ret, file, fd, file->f_pos);
 	}
 
 	return ret;
@@ -363,20 +371,13 @@ static asmlinkage long no_fscache_sys_writev(unsigned long fd,
 
 	if (file) {
 		loff_t pos = file_pos_read(file);
-		umode_t i_mode = file_inode(file)->i_mode;
 
 		ret = vfs_writev(file, vec, vlen, &pos, flags);
 		if (ret >= 0)
 			file_pos_write(file, pos);
 		cp_fdput_pos(f);
 
-		if (ret > 0 && S_ISREG(i_mode) && !is_direct(file))
-			/*
-			 * We don't need to flush the data if it is synced
-			 * already.
-			 */
-			advise_dontneed(fd, file->f_pos - ret, ret,
-					!is_sync(file));
+		advise_dontneed_after_write(ret, file, fd, file->f_pos);
 	}
 
 	if (ret > 0)
@@ -400,19 +401,12 @@ static asmlinkage long no_fscache_sys_pwrite64(unsigned int fd,
 	file = f.file;
 
 	if (file) {
-		umode_t i_mode = file_inode(file)->i_mode;
-
 		ret = -ESPIPE;
 		if (file->f_mode & FMODE_PWRITE)
 			ret = orig_vfs_write(file, buf, count, &pos);
 		fdput(f);
 
-		if (ret > 0 && S_ISREG(i_mode) && !is_direct(file))
-			/*
-			 * We don't need to flush the data if it is synced
-			 * already.
-			 */
-			advise_dontneed(fd, pos - ret, ret, !is_sync(file));
+		advise_dontneed_after_write(ret, file, fd, pos);
 	}
 
 	return ret;
