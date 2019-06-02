@@ -30,6 +30,26 @@ static ssize_t (*orig_vfs_readv)(struct file *file,
 				 unsigned long vlen, loff_t *pos, rwf_t flags);
 static int (*rw_verify_area)(int read_write, struct file *file,
 			     const loff_t *ppos, size_t count);
+static long (*orig_do_sys_open)(int dfd, const char __user *filename, int flags,
+				umode_t mode);
+
+static long no_fscache_do_sys_open(int dfd, const char __user *filename,
+				   int flags, umode_t mode)
+{
+	int fd = orig_do_sys_open(dfd, filename, flags, mode);
+
+	struct fd f = fdget(fd);
+	struct file *file = f.file;
+
+	if (file) {
+		umode_t i_mode = file_inode(file)->i_mode;
+
+		if (S_ISREG(i_mode))
+			orig_sys_fadvise64_64(fd, 0, 0, POSIX_FADV_RANDOM);
+	}
+
+	return fd;
+}
 
 static unsigned long __orig_fdget_pos(unsigned int fd)
 {
@@ -548,20 +568,22 @@ static asmlinkage long no_fscache_sys_pwritev2(unsigned long fd,
 struct func_symbol {
 	const char *name;
 	void *func;
+	int skipmcount;
 };
 
-#define FUNC_SYMBOL(_name, _func)                                              \
+#define FUNC_SYMBOL(_name, _func, _skipmcount)                                 \
 	{                                                                      \
-		.name = (_name), .func = (_func),                              \
+		.name = (_name), .func = (_func), .skipmcount = (_skipmcount), \
 	}
 
 static struct func_symbol dept_fsyms[] = {
-	FUNC_SYMBOL("sys_fadvise64_64", &orig_sys_fadvise64_64),
-	FUNC_SYMBOL("sys_sync_file_range2", &orig_sys_sync_file_range2),
-	FUNC_SYMBOL("vfs_read", &orig_vfs_read),
-	FUNC_SYMBOL("vfs_write", &orig_vfs_write),
-	FUNC_SYMBOL("vfs_readv", &orig_vfs_readv),
-	FUNC_SYMBOL("rw_verify_area", &rw_verify_area),
+	FUNC_SYMBOL("sys_fadvise64_64", &orig_sys_fadvise64_64, 0),
+	FUNC_SYMBOL("sys_sync_file_range2", &orig_sys_sync_file_range2, 0),
+	FUNC_SYMBOL("vfs_read", &orig_vfs_read, 0),
+	FUNC_SYMBOL("vfs_write", &orig_vfs_write, 0),
+	FUNC_SYMBOL("vfs_readv", &orig_vfs_readv, 0),
+	FUNC_SYMBOL("rw_verify_area", &rw_verify_area, 0),
+	FUNC_SYMBOL("do_sys_open", &orig_do_sys_open, 1),
 };
 
 static int fill_func_symbol(struct func_symbol *fsym)
@@ -574,6 +596,8 @@ static int fill_func_symbol(struct func_symbol *fsym)
 	}
 
 	*((unsigned long *)fsym->func) = address;
+	if (fsym->skipmcount)
+		*((unsigned long *)fsym->func) += MCOUNT_INSN_SIZE;
 
 	return 0;
 }
@@ -610,6 +634,7 @@ static struct klp_func funcs[] = {
 	KLP_FUNC("sys_pwritev", no_fscache_sys_pwritev),
 	KLP_FUNC("sys_preadv2", no_fscache_sys_preadv2),
 	KLP_FUNC("sys_pwritev2", no_fscache_sys_pwritev2),
+	KLP_FUNC("do_sys_open", no_fscache_do_sys_open),
 	{}
 };
 
