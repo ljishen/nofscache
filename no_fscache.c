@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
 // Copyright (c) 2019, Jianshen Liu
 
+/*
+ * NOTE: 'readahead' is a module parameter that enables/disables the file
+ *	 readahead behavior when calling open(), openat() and creat() system
+ *	 calls. The default value is 'Y' (enabled).
+ *
+ *	 # To disable file readahead
+ *	 echo 'N' > /sys/module/no_fscache/parameters/readahead
+ *
+ *	 # To enable file readahead
+ *	 echo 'Y' > /sys/module/no_fscache/parameters/readahead
+ */
+
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/fadvise.h>
@@ -14,7 +26,8 @@
 
 static bool readahead = true;
 module_param(readahead, bool, 0644);
-MODULE_PARM_DESC(readahead, "Enable/Disable file readahead. Default: Y (on)");
+MODULE_PARM_DESC(readahead,
+		 "Enable/Disable file readahead. Default: Y (enabled)");
 
 /*
  * Functions we need but are not exported to be used in loadable modules by
