@@ -12,6 +12,10 @@
 #include <linux/sched/xacct.h>
 #include <linux/uio.h>
 
+static bool readahead = true;
+module_param(readahead, bool, 0644);
+MODULE_PARM_DESC(readahead, "Enable/Disable file readahead. Default: Y (on)");
+
 /*
  * Functions we need but are not exported to be used in loadable modules by
  * kernel.
@@ -38,14 +42,17 @@ static long no_fscache_do_sys_open(int dfd, const char __user *filename,
 {
 	int fd = orig_do_sys_open(dfd, filename, flags, mode);
 
-	struct fd f = fdget(fd);
-	struct file *file = f.file;
+	if (!readahead) {
+		struct fd f = fdget(fd);
+		struct file *file = f.file;
 
-	if (file) {
-		umode_t i_mode = file_inode(file)->i_mode;
+		if (file) {
+			umode_t i_mode = file_inode(file)->i_mode;
 
-		if (S_ISREG(i_mode))
-			orig_sys_fadvise64_64(fd, 0, 0, POSIX_FADV_RANDOM);
+			if (S_ISREG(i_mode))
+				orig_sys_fadvise64_64(fd, 0, 0,
+						      POSIX_FADV_RANDOM);
+		}
 	}
 
 	return fd;
