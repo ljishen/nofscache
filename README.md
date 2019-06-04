@@ -1,2 +1,2 @@
 # nofscache
-Filesystem cache free for a device
+Filesystem cache free for storage devices

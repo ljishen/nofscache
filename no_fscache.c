@@ -7,10 +7,21 @@
  *	 calls. The default value is 'Y' (enabled).
  *
  *	 # To disable file readahead
- *	 echo 'N' > /sys/module/no_fscache/parameters/readahead
+ *	 echo 0 > /sys/module/no_fscache/parameters/readahead
  *
  *	 # To enable file readahead
- *	 echo 'Y' > /sys/module/no_fscache/parameters/readahead
+ *	 echo 1 > /sys/module/no_fscache/parameters/readahead
+ *
+ * NOTE: 'device' is a module parameter that specifies which storage devices
+ *	 are affected by this module. Multiple storage devices can be separated
+ *	 by commas. The default value is "" meaning no device is affected
+ *	 initially.
+ *
+ *	 # To disable file system cache for storage device sda
+ *	 echo 'sda' > /sys/module/no_fscache/parameters/device
+ *
+ *	 # To disable file system cache for storage device sda and sdb
+ *	 echo 'sda,sdb' > /sys/module/no_fscache/parameters/device
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -25,9 +36,32 @@
 #include <linux/uio.h>
 
 static bool readahead = true;
-module_param(readahead, bool, 0644);
+static const struct kernel_param_ops readahead_param_ops = {
+	.set = param_set_bint,
+	.get = param_get_bool,
+};
+module_param_cb_unsafe(readahead, &readahead_param_ops, &readahead, 0644);
 MODULE_PARM_DESC(readahead,
-		 "Enable/Disable file readahead. Default: Y (enabled)");
+		 "Enable/Disable file readahead. Default: Y (enabled).");
+
+#define BLOCK_DEVICE_DEFAULT ""
+static char *device = BLOCK_DEVICE_DEFAULT;
+static int block_device_param_set(const char *, const struct kernel_param *);
+const struct kernel_param_ops device_param_ops = {
+	.set = block_device_param_set,
+	.get = param_get_charp,
+	.free = param_free_charp,
+};
+module_param_cb_unsafe(device, &device_param_ops, &device, 0644);
+MODULE_PARM_DESC(device,
+		 "The affected block devices. Default: \"" BLOCK_DEVICE_DEFAULT
+		 "\" (none).");
+
+static int block_device_param_set(const char *val,
+				  const struct kernel_param *kp)
+{
+	return param_set_charp(val, kp);
+}
 
 /*
  * Functions we need but are not exported to be used in loadable modules by
@@ -700,7 +734,7 @@ static void no_fscache_exit(void)
 module_init(no_fscache_init);
 module_exit(no_fscache_exit);
 
-MODULE_DESCRIPTION("Bypass the operating system read and write caches");
+MODULE_DESCRIPTION("Bypass the file system read and write caches");
 MODULE_VERSION("0.1");
 MODULE_AUTHOR("Jianshen Liu <jliu120@ucsc.edu>");
 MODULE_LICENSE("Dual BSD/GPL");
