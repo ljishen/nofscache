@@ -12,16 +12,16 @@
  *	 # To enable file readahead
  *	 echo 1 > /sys/module/no_fscache/parameters/readahead
  *
- * NOTE: 'device' is a module parameter that specifies which storage devices
- *	 are affected by this module. Multiple storage devices can be separated
- *	 by commas. The default value is "" meaning no device is affected
- *	 initially.
+ * NOTE: 'no_fscache_device' is a module parameter that specifies which storage
+ *	 devices are affected by this module. Multiple devices can be specified
+ *	 by a comma-separated list. The default value is "" meaning no device
+ *	 is affected initially.
  *
  *	 # To disable file system cache for storage device sda
- *	 echo 'sda' > /sys/module/no_fscache/parameters/device
+ *	 echo 'sda' > /sys/module/no_fscache/parameters/no_fscache_device
  *
- *	 # To disable file system cache for storage device sda and sdb
- *	 echo 'sda,sdb' > /sys/module/no_fscache/parameters/device
+ *	 # To disable file system cache for storage devices sda and sdb
+ *	 echo 'sda,sdb' > /sys/module/no_fscache/parameters/no_fscache_device
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -44,24 +44,175 @@ module_param_cb_unsafe(readahead, &readahead_param_ops, &readahead, 0644);
 MODULE_PARM_DESC(readahead,
 		 "Enable/Disable file readahead. Default: Y (enabled).");
 
-#define BLOCK_DEVICE_DEFAULT ""
-static char *device = BLOCK_DEVICE_DEFAULT;
-static int block_device_param_set(const char *, const struct kernel_param *);
-const struct kernel_param_ops device_param_ops = {
-	.set = block_device_param_set,
-	.get = param_get_charp,
-	.free = param_free_charp,
-};
-module_param_cb_unsafe(device, &device_param_ops, &device, 0644);
-MODULE_PARM_DESC(device,
-		 "The affected block devices. Default: \"" BLOCK_DEVICE_DEFAULT
-		 "\" (none).");
+/**
+ * module_param_array_ops_named - renamed parameter which is an array of some
+ * type.
+ *
+ * @name: a valid C identifier which is the parameter name
+ * @array: the name of the array variable
+ * @array_ops: the set & get operations for this array parameter
+ * @type: the type, as per module_param()
+ * @nump: optional pointer filled in with the number written
+ * @perm: visibility in sysfs
+ *
+ * This exposes a different name than the actual variable name.  See
+ * module_param_named() for why this might be necessary.
+ */
+#define module_param_array_ops_named(name, array, array_ops, type, nump, perm) \
+	param_check_##type(name, &(array)[0]);                                 \
+	static const struct kparam_array __param_arr_##name = {                \
+		.max = ARRAY_SIZE(array),                                      \
+		.num = nump,                                                   \
+		.ops = &param_ops_##type,                                      \
+		.elemsize = sizeof(array[0]),                                  \
+		.elem = array                                                  \
+	};                                                                     \
+	__module_param_call(MODULE_PARAM_PREFIX, name, array_ops,              \
+			    .arr = &__param_arr_##name, perm, -1,              \
+			    KERNEL_PARAM_FL_UNSAFE);                           \
+	__MODULE_PARM_TYPE(name, "array of " #type)
 
-static int block_device_param_set(const char *val,
-				  const struct kernel_param *kp)
+#ifdef CONFIG_SYSFS
+/* Protects all built-in parameters, modules use their own param_lock */
+static DEFINE_MUTEX(param_lock);
+
+/* Use the module's mutex, or if built-in use the built-in mutex */
+#ifdef CONFIG_MODULES
+#define KPARAM_MUTEX(mod) ((mod) ? &(mod)->param_lock : &param_lock)
+#else
+#define KPARAM_MUTEX(mod) (&param_lock)
+#endif
+
+static inline void check_kparam_locked(struct module *mod)
 {
-	return param_set_charp(val, kp);
+	BUG_ON(!mutex_is_locked(KPARAM_MUTEX(mod)));
 }
+#else
+static inline void check_kparam_locked(struct module *mod)
+{
+}
+#endif /* !CONFIG_SYSFS */
+
+/* We break the rule and mangle the string. */
+static int param_array(struct module *mod, const char *name, const char *val,
+		       unsigned int min, unsigned int max, void *elem,
+		       int elemsize,
+		       int (*set)(const char *, const struct kernel_param *kp),
+		       s16 level, unsigned int *num)
+{
+	struct kernel_param kp;
+	char save;
+
+	/* Get the name right for errors. */
+	kp.name = name;
+	kp.arg = elem;
+	kp.level = level;
+
+	*num = 0;
+	/*
+	 * We expect a comma-separated list of values.
+	 * Space around each element is ignored.
+	 */
+	do {
+		int len;
+		int ret;
+
+		if (*num == max) {
+			pr_err("%s: can only take %i arguments\n", name, max);
+			return -EINVAL;
+		}
+		len = strcspn(val, ", ");
+
+		/* nul-terminate and parse */
+		save = val[len];
+
+		if (len == 0) {
+			val += 1;
+			continue;
+		}
+
+		((char *)val)[len] = '\0';
+		check_kparam_locked(mod);
+		ret = set(val, &kp);
+
+		if (ret != 0)
+			return ret;
+		kp.arg += elemsize;
+		val += len + 1;
+		(*num)++;
+	} while (save == ',' || save == ' ');
+
+	if (*num < min) {
+		pr_err("%s: needs at least %i arguments\n", name, min);
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static int param_array_set(const char *val, const struct kernel_param *kp)
+{
+	const struct kparam_array *arr = kp->arr;
+	unsigned int temp_num;
+
+	return param_array(kp->mod, kp->name, val, 1, arr->max, arr->elem,
+			   arr->elemsize, arr->ops->set, kp->level,
+			   arr->num ?: &temp_num);
+}
+
+static int device_array_set(const char *val, const struct kernel_param *kp)
+{
+	return param_array_set(val, kp);
+}
+
+static int param_array_get(char *buffer, const struct kernel_param *kp)
+{
+	int i, off;
+	const struct kparam_array *arr = kp->arr;
+	struct kernel_param p = *kp;
+
+	for (i = off = 0; i < (arr->num ? *arr->num : arr->max); i++) {
+		int ret;
+
+		/* Replace \n with comma */
+		if (i)
+			buffer[off - 1] = ',';
+		p.arg = arr->elem + arr->elemsize * i;
+		check_kparam_locked(p.mod);
+		ret = arr->ops->get(buffer + off, &p);
+		if (ret < 0)
+			return ret;
+		off += ret;
+	}
+	buffer[off] = '\0';
+	return off;
+}
+
+static void param_array_free(void *arg)
+{
+	const struct kparam_array *arr = arg;
+
+	if (arr->ops->free) {
+		unsigned int i;
+
+		for (i = 0; i < (arr->num ? *arr->num : arr->max); i++)
+			arr->ops->free(arr->elem + arr->elemsize * i);
+	}
+}
+
+#define MAX_BLKDEVS 512
+static char *no_fscache_device[MAX_BLKDEVS];
+static int count;
+const struct kernel_param_ops device_array_ops = {
+	.set = device_array_set,
+	.get = param_array_get,
+	.free = param_array_free,
+};
+
+module_param_array_ops_named(no_fscache_device, no_fscache_device,
+			     &device_array_ops, charp, &count, 0644);
+
+MODULE_PARM_DESC(no_fscache_device,
+		 "The affected block devices. Default: \"\" (none).");
 
 /*
  * Functions we need but are not exported to be used in loadable modules by
