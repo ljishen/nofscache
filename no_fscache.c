@@ -149,7 +149,7 @@ static int param_array(struct module *mod, const char *name, const char *val,
 	return 0;
 }
 
-static int param_array_set(const char *val, const struct kernel_param *kp)
+static int device_array_set(const char *val, const struct kernel_param *kp)
 {
 	const struct kparam_array *arr = kp->arr;
 	unsigned int temp_num;
@@ -157,11 +157,6 @@ static int param_array_set(const char *val, const struct kernel_param *kp)
 	return param_array(kp->mod, kp->name, val, 1, arr->max, arr->elem,
 			   arr->elemsize, arr->ops->set, kp->level,
 			   arr->num ?: &temp_num);
-}
-
-static int device_array_set(const char *val, const struct kernel_param *kp)
-{
-	return param_array_set(val, kp);
 }
 
 static int param_array_get(char *buffer, const struct kernel_param *kp)
