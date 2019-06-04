@@ -230,6 +230,21 @@ static int (*rw_verify_area)(int read_write, struct file *file,
 static long (*orig_do_sys_open)(int dfd, const char __user *filename, int flags,
 				umode_t mode);
 
+static asmlinkage long no_fscache_sys_fadvise64_64(int fd, loff_t offset,
+						   loff_t len, int advice)
+{
+	if (!readahead)
+		switch (advice) {
+		case POSIX_FADV_NORMAL:
+		case POSIX_FADV_SEQUENTIAL:
+		case POSIX_FADV_WILLNEED:
+		case POSIX_FADV_NOREUSE:
+			advice = POSIX_FADV_RANDOM;
+		}
+
+	return orig_sys_fadvise64_64(fd, offset, len, advice);
+}
+
 static long no_fscache_do_sys_open(int dfd, const char __user *filename,
 				   int flags, umode_t mode)
 {
@@ -777,7 +792,7 @@ struct func_symbol {
 	}
 
 static struct func_symbol dept_fsyms[] = {
-	FUNC_SYMBOL("sys_fadvise64_64", &orig_sys_fadvise64_64, 0),
+	FUNC_SYMBOL("sys_fadvise64_64", &orig_sys_fadvise64_64, 1),
 	FUNC_SYMBOL("sys_sync_file_range2", &orig_sys_sync_file_range2, 0),
 	FUNC_SYMBOL("vfs_read", &orig_vfs_read, 0),
 	FUNC_SYMBOL("vfs_write", &orig_vfs_write, 0),
@@ -824,6 +839,7 @@ static int resolve_func(void)
 	}
 
 static struct klp_func funcs[] = {
+	KLP_FUNC("sys_fadvise64_64", no_fscache_sys_fadvise64_64),
 	KLP_FUNC("sys_read", no_fscache_sys_read),
 	KLP_FUNC("sys_write", no_fscache_sys_write),
 	KLP_FUNC("sys_readv", no_fscache_sys_readv),
