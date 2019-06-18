@@ -2,7 +2,7 @@
 # vi: set ft=ruby :
 
 # SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
-# Copyright (c) 2019, Jianshen Liu
+# Copyright (c) 2019, Jianshen Liu <jliu120@ucsc.edu>
 
 require 'digest/md5'
 require 'etc'
@@ -158,7 +158,7 @@ SH_SCRIPT
     cat <<'SCRIPT_EOF' > /usr/local/sbin/vagrant_mount
     #!/bin/sh
     # SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
-    # Copyright (c) 2019, Jianshen Liu
+    # Copyright (c) 2019, Jianshen Liu <jliu120@ucsc.edu>
 
     set -e
 
@@ -174,7 +174,7 @@ SH_SCRIPT
 
     cat <<'CRON_EOF' > /etc/cron.d/vagrant_mount
     # SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
-    # Copyright (c) 2019, Jianshen Liu
+    # Copyright (c) 2019, Jianshen Liu <jliu120@ucsc.edu>
 
     SHELL=/bin/sh
     PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
