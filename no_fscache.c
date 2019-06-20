@@ -215,9 +215,6 @@ MODULE_PARM_DESC(no_fscache_device,
  */
 static asmlinkage long (*orig_sys_fadvise64_64)(int fd, loff_t offset,
 						size_t len, int advice);
-static asmlinkage long (*orig_sys_sync_file_range2)(int fd, unsigned int flags,
-						    loff_t offset,
-						    loff_t nbytes);
 static ssize_t (*orig_vfs_read)(struct file *file, char __user *buf,
 				size_t count, loff_t *pos);
 static ssize_t (*orig_vfs_write)(struct file *file, const char __user *buf,
@@ -248,7 +245,7 @@ static asmlinkage long no_fscache_sys_fadvise64_64(int fd, loff_t offset,
 static long no_fscache_do_sys_open(int dfd, const char __user *filename,
 				   int flags, umode_t mode)
 {
-	int fd = orig_do_sys_open(dfd, filename, flags, mode);
+	int fd = orig_do_sys_open(dfd, filename, flags, mode | O_DSYNC);
 
 	if (!readahead) {
 		struct fd f = fdget(fd);
@@ -326,19 +323,10 @@ static inline size_t nearest_right_page_boundary(size_t offset)
 }
 
 /* Return: %0 on success, negative error code otherwise */
-static int advise_dontneed(unsigned int fd, loff_t fpos, size_t nbytes,
-			   bool flush)
+static int do_advise_dontneed(unsigned int fd, loff_t fpos, size_t nbytes)
 {
 	loff_t offset;
 	size_t len;
-
-	if (flush) {
-		int ret = orig_sys_sync_file_range2(
-			fd, SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER,
-			fpos, nbytes);
-		if (ret < 0)
-			return ret;
-	}
 
 	/*
 	 *  The offset and len must be aligned on a system page-sized boundary
@@ -379,13 +367,13 @@ static inline bool is_direct(struct file *filp)
 	       IS_DAX(file_inode(filp));
 }
 
-static inline void advise_dontneed_after_read(ssize_t ret, struct file *file,
-					      unsigned int fd, loff_t lpos)
+static inline void advise_dontneed(ssize_t ret, struct file *file,
+				   unsigned int fd, loff_t lpos)
 {
 	umode_t i_mode = file_inode(file)->i_mode;
 
 	if (ret >= 0 && S_ISREG(i_mode) && !is_direct(file))
-		advise_dontneed(fd, lpos - ret, ret, false);
+		do_advise_dontneed(fd, lpos - ret, ret);
 }
 
 static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
@@ -403,7 +391,7 @@ static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 			file_pos_write(file, pos);
 		orig_fdput_pos(f);
 
-		advise_dontneed_after_read(ret, file, fd, file->f_pos);
+		advise_dontneed(ret, file, fd, file->f_pos);
 	}
 	return ret;
 }
@@ -423,7 +411,7 @@ static ssize_t do_readv(unsigned long fd, const struct iovec __user *vec,
 			file_pos_write(file, pos);
 		orig_fdput_pos(f);
 
-		advise_dontneed_after_read(ret, file, fd, file->f_pos);
+		advise_dontneed(ret, file, fd, file->f_pos);
 	}
 
 	if (ret > 0)
@@ -458,7 +446,7 @@ static asmlinkage long no_fscache_sys_pread64(unsigned int fd, char __user *buf,
 			ret = orig_vfs_read(file, buf, count, &pos);
 		fdput(f);
 
-		advise_dontneed_after_read(ret, file, fd, pos);
+		advise_dontneed(ret, file, fd, pos);
 	}
 
 	return ret;
@@ -489,7 +477,7 @@ static ssize_t do_preadv(unsigned long fd, const struct iovec __user *vec,
 			ret = orig_vfs_readv(file, vec, vlen, &pos, flags);
 		fdput(f);
 
-		advise_dontneed_after_read(ret, file, fd, pos);
+		advise_dontneed(ret, file, fd, pos);
 	}
 
 	if (ret > 0)
@@ -523,31 +511,6 @@ static asmlinkage long no_fscache_sys_preadv2(unsigned long fd,
 	return do_preadv(fd, vec, vlen, pos, flags);
 }
 
-/*
- * See https://elixir.bootlin.com/linux/v5.1.12/source/include/linux/fs.h#L3321
- *     https://elixir.bootlin.com/linux/v5.1.12/source/include/linux/fs.h#L2793
- *
- * Note that if O_SYNC is true, than O_DSYNC must be true.
- * See https://elixir.bootlin.com/linux/v5.1.12/source/include/uapi/asm-generic/fcntl.h#L74
- */
-static inline bool is_sync(struct file *filp)
-{
-	return (filp->f_flags & O_DSYNC) || IS_SYNC(filp->f_mapping->host);
-}
-
-static inline void advise_dontneed_after_write(ssize_t ret, struct file *file,
-					       unsigned int fd, loff_t pos)
-{
-	umode_t i_mode = file_inode(file)->i_mode;
-
-	if (ret > 0 && S_ISREG(i_mode) && !is_direct(file))
-		/*
-		 * We don't need to flush the data if it is synced
-		 * already.
-		 */
-		advise_dontneed(fd, pos - ret, ret, !is_sync(file));
-}
-
 static asmlinkage long
 no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 {
@@ -563,7 +526,7 @@ no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 			file_pos_write(file, pos);
 		orig_fdput_pos(f);
 
-		advise_dontneed_after_write(ret, file, fd, file->f_pos);
+		advise_dontneed(ret, file, fd, file->f_pos);
 	}
 
 	return ret;
@@ -685,7 +648,7 @@ static ssize_t do_writev(unsigned long fd, const struct iovec __user *vec,
 			file_pos_write(file, pos);
 		orig_fdput_pos(f);
 
-		advise_dontneed_after_write(ret, file, fd, file->f_pos);
+		advise_dontneed(ret, file, fd, file->f_pos);
 	}
 
 	if (ret > 0)
@@ -721,7 +684,7 @@ static asmlinkage long no_fscache_sys_pwrite64(unsigned int fd,
 			ret = orig_vfs_write(file, buf, count, &pos);
 		fdput(f);
 
-		advise_dontneed_after_write(ret, file, fd, pos);
+		advise_dontneed(ret, file, fd, pos);
 	}
 
 	return ret;
@@ -746,7 +709,7 @@ static ssize_t do_pwritev(unsigned long fd, const struct iovec __user *vec,
 			ret = vfs_writev(file, vec, vlen, &pos, flags);
 		fdput(f);
 
-		advise_dontneed_after_write(ret, file, fd, pos);
+		advise_dontneed(ret, file, fd, pos);
 	}
 
 	if (ret > 0)
@@ -793,7 +756,6 @@ struct func_symbol {
 
 static struct func_symbol dept_fsyms[] = {
 	FUNC_SYMBOL("sys_fadvise64_64", &orig_sys_fadvise64_64, 1),
-	FUNC_SYMBOL("sys_sync_file_range2", &orig_sys_sync_file_range2, 0),
 	FUNC_SYMBOL("vfs_read", &orig_vfs_read, 0),
 	FUNC_SYMBOL("vfs_write", &orig_vfs_write, 0),
 	FUNC_SYMBOL("vfs_readv", &orig_vfs_readv, 0),
