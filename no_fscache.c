@@ -287,7 +287,7 @@ static inline struct fd orig_fdget_pos(int fd)
 
 /*
  * File is stream-like
- * See https://elixir.bootlin.com/linux/v5.1.6/source/include/linux/fs.h#L162
+ * See https://elixir.bootlin.com/linux/v5.1.12/source/include/linux/fs.h#L162
  */
 #define FMODE_STREAM ((__force fmode_t)0x200000)
 
@@ -345,7 +345,7 @@ static int advise_dontneed(unsigned int fd, loff_t fpos, size_t nbytes,
 	 *  in order to cover all dirty pages since partial page updates are
 	 *  deliberately be ignored.
 	 *  For sys_fadvise64():
-	 *	https://elixir.bootlin.com/linux/v5.1.6/source/mm/fadvise.c#L120
+	 *	https://elixir.bootlin.com/linux/v5.1.12/source/mm/fadvise.c#L120
 	 *
 	 *  Since we align the file offset and nbytes to the nearest page
 	 *  boundary, when the size of buf or the value specified in count is
@@ -367,11 +367,11 @@ static int advise_dontneed(unsigned int fd, loff_t fpos, size_t nbytes,
 /*
  * This function is enhanced based on
  * io_is_direct() from
- *	https://elixir.bootlin.com/linux/v5.1.6/source/include/linux/fs.h#L3297
+ *	https://elixir.bootlin.com/linux/v5.1.12/source/include/linux/fs.h#L3297
  * xfs_file_read_iter() from
- *	https://elixir.bootlin.com/linux/v5.1.6/source/fs/xfs/xfs_file.c#L252
+ *	https://elixir.bootlin.com/linux/v5.1.12/source/fs/xfs/xfs_file.c#L252
  * and xfs_file_write_iter() from
- *	https://elixir.bootlin.com/linux/v5.1.6/source/fs/xfs/xfs_file.c#L692
+ *	https://elixir.bootlin.com/linux/v5.1.12/source/fs/xfs/xfs_file.c#L692
  */
 static inline bool is_direct(struct file *filp)
 {
@@ -524,11 +524,11 @@ static asmlinkage long no_fscache_sys_preadv2(unsigned long fd,
 }
 
 /*
- * See https://elixir.bootlin.com/linux/v5.1.6/source/include/linux/fs.h#L3321
- *     https://elixir.bootlin.com/linux/v5.1.6/source/include/linux/fs.h#L2793
+ * See https://elixir.bootlin.com/linux/v5.1.12/source/include/linux/fs.h#L3321
+ *     https://elixir.bootlin.com/linux/v5.1.12/source/include/linux/fs.h#L2793
  *
  * Note that if O_SYNC is true, than O_DSYNC must be true.
- * See https://elixir.bootlin.com/linux/v5.1.6/source/include/uapi/asm-generic/fcntl.h#L74
+ * See https://elixir.bootlin.com/linux/v5.1.12/source/include/uapi/asm-generic/fcntl.h#L74
  */
 static inline bool is_sync(struct file *filp)
 {
