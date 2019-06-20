@@ -245,7 +245,7 @@ static asmlinkage long no_fscache_sys_fadvise64_64(int fd, loff_t offset,
 static long no_fscache_do_sys_open(int dfd, const char __user *filename,
 				   int flags, umode_t mode)
 {
-	int fd = orig_do_sys_open(dfd, filename, flags, mode | O_DSYNC);
+	int fd = orig_do_sys_open(dfd, filename, flags | O_DSYNC, mode);
 
 	if (!readahead) {
 		struct fd f = fdget(fd);
