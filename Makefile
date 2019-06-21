@@ -30,10 +30,6 @@ check_kernel:
 		exit 1;														\
 	fi
 
-.PHONY: debug
-debug: export ccflags-y := -O0 -g
-debug: $(MOD).ko
-
 .PHONY: clean
 clean:
 	make -C $(KERNEL_PATH) M=$(CURDIR) clean
@@ -59,6 +55,10 @@ check_state:
 .PHONY: install
 install: insmod check_state
 	@echo "[INFO] successfully installed"
+
+.PHONY: debug_install
+debug_install: export ccflags-y := -O0 -g
+debug_install: install
 
 .PHONY: uninstall
 ifeq (,$(wildcard $(MOD_SYSFS_IF)/enabled))
