@@ -1,34 +1,34 @@
+# frozen_string_literal: true
+
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
 
 # SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
 # Copyright (c) 2019, Jianshen Liu <jliu120@ucsc.edu>
 
-require 'digest/md5'
-require 'etc'
 require 'fileutils'
 
 # Vagrant-libvirt supports Vagrant 1.5, 1.6, 1.7 and 1.8
 #   https://github.com/vagrant-libvirt/vagrant-libvirt#installation
 # The feature of trigger requires Vagrant version >= 2.1.0
 #   https://www.vagrantup.com/docs/triggers/
-Vagrant.require_version ">= 2.1.0"
+Vagrant.require_version '>= 2.1.0'
 
 # All Vagrant configuration is done below. The "2" in Vagrant.configure
 # configures the configuration version (we support older styles for
 # backwards compatibility). Please don't change it unless you know what
 # you're doing.
-Vagrant.configure("2") do |config|
+Vagrant.configure('2') do |config|
   # The most common configuration options are documented and commented below.
   # For a complete reference, please see the online documentation at
   # https://docs.vagrantup.com.
 
   # Every Vagrant development environment requires a box. You can search for
   # boxes at https://vagrantcloud.com/search.
-  config.vm.box = "generic/ubuntu1804"
+  config.vm.box = 'generic/ubuntu1804'
 
   config.trigger.before :up do |trigger|
-    trigger.info = "WARNING: this setup process needs ~10 GB additional disk space."
+    trigger.info = '[WARNING] This setup process needs ~10 GB additional disk space.'
   end
 
   # Disable automatic box update checking. If you disable this, then
@@ -61,24 +61,17 @@ Vagrant.configure("2") do |config|
   # the path on the guest to mount the folder. And the optional third
   # argument is a set of non-required options.
   # config.vm.synced_folder "../data", "/vagrant_data"
-  SyncedFolder = Struct.new(:hostpath, :guestpath) do
-    def mount_tag
-      # https://github.com/vagrant-libvirt/vagrant-libvirt/blob/master/lib/vagrant-libvirt/cap/mount_p9.rb
-      Digest::MD5.new.update(hostpath).to_s[0, 31]
-    end
-  end
+  SyncedFolder = Struct.new(:hostpath, :guestpath)
 
-  pwuid = Etc.getpwuid()
-
-  synced_folders = [SyncedFolder.new(Dir.pwd, "/vagrant")]
+  synced_folders = [SyncedFolder.new(Dir.pwd, '/vagrant')]
   synced_folders.each do |folder|
-    config.vm.synced_folder "#{folder.hostpath}", "#{folder.guestpath}", type: "9p", accessmode: "mapped", mount: true
+    config.vm.synced_folder folder.hostpath.to_s, folder.guestpath.to_s, type: 'nfs', mount_options: ['rw', 'vers=3', 'tcp', 'actimeo=2']
   end
 
   # Host debuggee folder for hosting the kernel source and the debug symbol
   # archive
-  debuggee_folder_name = "debuggee"
-  FileUtils.mkdir_p Dir.pwd + "/" + debuggee_folder_name
+  debuggee_folder_name = 'debuggee'
+  FileUtils.mkdir_p Dir.pwd + '/' + debuggee_folder_name
 
   # Provider-specific configuration so you can fine-tune various
   # backing providers for Vagrant. These expose provider-specific options.
@@ -96,100 +89,65 @@ Vagrant.configure("2") do |config|
   # information on available options.
 
   config.vm.provider :libvirt do |libvirt|
-    libvirt.memory = "4096"
-    libvirt.cpus = "6"
+    libvirt.memory = '4096'
+    libvirt.cpus = '6'
 
     # Enable the gdb stub of QEMU/KVM.
     # Change the debugging port if the default doesn't work.
-    libvirt.qemuargs :value => "-gdb"
-    libvirt.qemuargs :value => "tcp::1234"
+    libvirt.qemuargs value: '-gdb'
+    libvirt.qemuargs value: 'tcp::1234'
   end
 
-  commands = ""
+  auto_mount_command = "echo >> /etc/fstab\n"
   synced_folders.each do |folder|
-    commands += <<-SH_SCRIPT
-mkdir -p #{folder.guestpath}
-if ! findmnt "#{folder.guestpath}" > /dev/null 2>&1; then
-    mount -t 9p -o trans=virtio,version=9p2000.L "#{folder.mount_tag}" "#{folder.guestpath}"
-fi
-SH_SCRIPT
+    auto_mount_command += <<-MOUNT_COMMAND
+    mount -t nfs | grep -w "#{folder.guestpath}" | awk \
+        '{ print $1 "\\t" $3 "\\t" $5 "\\t" substr($6, 2, length($6) - 2) 0 "\\t" 0 }' >> /etc/fstab
+    MOUNT_COMMAND
   end
 
   # Enable provisioning with a shell script. Additional provisioners such as
   # Puppet, Chef, Ansible, Salt, and Docker are also available. Please see the
   # documentation for more information about their specific syntax and use.
-  config.vm.provision "shell", inline: <<~SHELL
-    # Add a login user to match the permission of the current user on the host
-    adduser -disabled-password --gecos "" --uid #{pwuid.uid} #{pwuid.name}
-    echo "#{pwuid.name}:password" | chpasswd
-    usermod -aG sudo #{pwuid.name}
-    cp -r /home/vagrant/.ssh /home/#{pwuid.name}/
-    chown -R #{pwuid.name}:#{pwuid.name} /home/#{pwuid.name}/.ssh
-    sed 's/^[[:alnum:]]*/#{pwuid.name}/' /etc/sudoers.d/vagrant > /etc/sudoers.d/#{pwuid.name}
-    chmod 440 /etc/sudoers.d/#{pwuid.name}
+  config.vm.provision 'shell', inline: <<~SHELL
+    set -eu -o pipefail
 
-    # Install kernel debug symbol package
+    echo "[INFO] Add mountpoints to /etc/fstab"
+    #{auto_mount_command}
+
+    echo "[INFO] Installing kernel debug symbol package"
     echo "deb http://ddebs.ubuntu.com $(lsb_release -cs) main restricted universe multiverse
     deb http://ddebs.ubuntu.com $(lsb_release -cs)-updates main restricted universe multiverse" >> \
     /etc/apt/sources.list.d/ddebs.list
     apt install ubuntu-dbgsym-keyring
     apt-get update
-    apt-get -y install linux-image-$(uname -r)-dbgsym
-    cp -r /usr/lib/debug/boot/vmlinux-$(uname -r) /vagrant/#{debuggee_folder_name}/
+    apt-get -y install linux-image-"$(uname -r)"-dbgsym
+    cp -r /usr/lib/debug/boot/vmlinux-"$(uname -r)" /vagrant/#{debuggee_folder_name}/
 
-    # Download Linux kernel source
     kernel_version="$(uname -v | grep -oP '#\\K\\d+')"
     package_version="$(uname -r | sed "s/-generic/.$kernel_version/")"
     kernel_release="$(uname -r | sed 's/-.*$//')"
+    echo "[INFO] Installing linux-source-$kernel_release=$package_version"
     apt-get -y --no-install-recommends install linux-source-"$kernel_release"="$package_version"
-    tar -xf /usr/src/linux-source-*.tar.bz2 -C /vagrant/#{debuggee_folder_name}/
+    echo "[INFO] Extracting files from /usr/src/linux-source-$kernel_release.tar.bz2"
+    tar -xf /usr/src/linux-source-"$kernel_release".tar.bz2 -C /vagrant/#{debuggee_folder_name}/ --no-same-owner
 
-    # Install module build dependencies
+    echo "[INFO] Installing module build dependencies"
     apt-get -y --no-install-recommends install build-essential libelf-dev
 
-    # Clean up
+    echo "[INFO] Clean up APT cache"
     apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-    # Disable the kernel address space layout randomization (KASLR) on the guest
+    echo "[INFO] Disable the kernel address space layout randomization (KASLR)"
     sed -i 's/\\(GRUB_CMDLINE_LINUX_DEFAULT=.*\\)"/\\1 nokaslr"/' /etc/default/grub
     update-grub
 
-    # Add a cron job for mounting 9p shared path after system reboot
-    cat <<'SCRIPT_EOF' > /usr/local/sbin/vagrant_mount
-    #!/bin/sh
-    # SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
-    # Copyright (c) 2019, Jianshen Liu <jliu120@ucsc.edu>
-
-    set -e
-
-    modprobe 9p
-    modprobe 9pnet_virtio
-
-    #{commands}
-    # Remove cron job once mount finished
-    rm -f /etc/cron.d/vagrant_mount
-    SCRIPT_EOF
-
-    chmod +x /usr/local/sbin/vagrant_mount
-
-    cat <<'CRON_EOF' > /etc/cron.d/vagrant_mount
-    # SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
-    # Copyright (c) 2019, Jianshen Liu <jliu120@ucsc.edu>
-
-    SHELL=/bin/sh
-    PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
-
-    @reboot root vagrant_mount
-    CRON_EOF
-
-    # Configure a serial console in the guest
+    echo "[INFO] Enable serial console service"
     systemctl enable serial-getty@ttyS0.service
 
-    # Reboot to update system configuration
+    echo "[INFO] Reboot to update system configuration"
     reboot
-  SHELL
 
-  if ARGV[0] == "ssh"
-    config.ssh.username = pwuid.name
-  end
+    echo "[INFO] Done system provision."
+  SHELL
 end

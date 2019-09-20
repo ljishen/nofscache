@@ -29,11 +29,12 @@
 #include <linux/fadvise.h>
 #include <linux/file.h>
 #include <linux/fsnotify.h>
-#include <linux/kernel.h>
 #include <linux/livepatch.h>
-#include <linux/module.h>
 #include <linux/sched/xacct.h>
 #include <linux/uio.h>
+
+#include <linux/kernel.h>
+#include <linux/module.h>
 
 static bool readahead = true;
 static const struct kernel_param_ops readahead_param_ops = {
@@ -194,8 +195,8 @@ static void param_array_free(void *arg)
 	}
 }
 
-#define MAX_BLKDEVS 512
-static char *no_fscache_device[MAX_BLKDEVS];
+#define MAX_BLKDEVS 128
+static char *no_fscache_device_param[MAX_BLKDEVS];
 static int count;
 const struct kernel_param_ops device_array_ops = {
 	.set = device_array_set,
@@ -203,15 +204,15 @@ const struct kernel_param_ops device_array_ops = {
 	.free = param_array_free,
 };
 
-module_param_array_ops_named(no_fscache_device, no_fscache_device,
+module_param_array_ops_named(no_fscache_device, no_fscache_device_param,
 			     &device_array_ops, charp, &count, 0644);
 
 MODULE_PARM_DESC(no_fscache_device,
 		 "The affected block devices. Default: \"\" (none).");
 
 /*
- * Functions we need but are not exported to be used in loadable modules by
- * kernel.
+ * These Functions are not exported to be used in loadable modules so we
+ * look for them using kallsyms_lookup_name().
  */
 static asmlinkage long (*orig_sys_fadvise64_64)(int fd, loff_t offset,
 						size_t len, int advice);
@@ -236,6 +237,10 @@ static asmlinkage long no_fscache_sys_fadvise64_64(int fd, loff_t offset,
 		case POSIX_FADV_SEQUENTIAL:
 		case POSIX_FADV_WILLNEED:
 		case POSIX_FADV_NOREUSE:
+			/*
+			 * Implementation history of POSIX_FADV_RANDOM:
+			 * https://lore.kernel.org/patchwork/patch/187024/
+			 */
 			advice = POSIX_FADV_RANDOM;
 		}
 
@@ -247,17 +252,19 @@ static long no_fscache_do_sys_open(int dfd, const char __user *filename,
 {
 	int fd = orig_do_sys_open(dfd, filename, flags | O_DSYNC, mode);
 
+	/*
+	 * If no advice is given for an open file, the default assumption is
+	 * POSIX_FADV_NORMAL, which sets the readahead window to the default
+	 * size for the backing device.
+	 * See https://linux.die.net/man/2/fadvise64_64
+	 */
 	if (!readahead) {
-		struct fd f = fdget(fd);
-		struct file *file = f.file;
-
-		if (file) {
-			umode_t i_mode = file_inode(file)->i_mode;
-
-			if (S_ISREG(i_mode))
-				orig_sys_fadvise64_64(fd, 0, 0,
-						      POSIX_FADV_RANDOM);
-		}
+		/*
+		 * Ignore return value because do_sys_open() shall return a
+		 * file descriptor even if it fails to advice the access
+		 * pattern.
+		 */
+		orig_sys_fadvise64_64(fd, 0, 0, POSIX_FADV_RANDOM);
 	}
 
 	return fd;
@@ -284,19 +291,14 @@ static inline struct fd orig_fdget_pos(int fd)
 
 /*
  * File is stream-like
- * See https://elixir.bootlin.com/linux/v5.1.12/source/include/linux/fs.h#L162
+ * See https://elixir.bootlin.com/linux/v5.3/source/include/linux/fs.h#L162
  */
 #define FMODE_STREAM ((__force fmode_t)0x200000)
 
-static inline loff_t file_pos_read(struct file *file)
+/* file_ppos returns &file->f_pos or NULL if file is stream */
+static inline loff_t *file_ppos(struct file *file)
 {
-	return (file->f_mode & FMODE_STREAM) ? 0 : file->f_pos;
-}
-
-static inline void file_pos_write(struct file *file, loff_t pos)
-{
-	if ((file->f_mode & FMODE_STREAM) == 0)
-		file->f_pos = pos;
+	return (file->f_mode & FMODE_STREAM) ? NULL : &file->f_pos;
 }
 
 static void __orig_f_unlock_pos(struct file *f)
@@ -311,55 +313,48 @@ static inline void orig_fdput_pos(struct fd f)
 	fdput(f);
 }
 
-static inline loff_t nearest_left_page_boundary(loff_t offset)
+/**
+ * @fd: the file descriptor
+ * @spos: start offset
+ * @epos: end offset
+ *
+ * Return values are the same as the return values of fadvise64_64(2)
+ */
+static int do_advise_dontneed(unsigned int fd, loff_t spos, loff_t epos)
 {
-	return offset - (offset & (PAGE_SIZE - 1));
-}
-
-static inline size_t nearest_right_page_boundary(size_t offset)
-{
-	size_t rem = (offset + PAGE_SIZE) & (PAGE_SIZE - 1);
-	return rem == 0 ? offset : offset + PAGE_SIZE - rem;
-}
-
-/* Return: %0 on success, negative error code otherwise */
-static int do_advise_dontneed(unsigned int fd, loff_t fpos, size_t nbytes)
-{
-	loff_t offset;
-	size_t len;
+	loff_t startbyte;
+	loff_t endbyte;
 
 	/*
 	 *  The offset and len must be aligned on a system page-sized boundary
 	 *  in order to cover all dirty pages since partial page updates are
-	 *  deliberately be ignored.
-	 *  For sys_fadvise64():
-	 *	https://elixir.bootlin.com/linux/v5.1.12/source/mm/fadvise.c#L120
+	 *  deliberately ignored.
+	 *  For sys_fadvise64_64():
+	 *	https://elixir.bootlin.com/linux/v5.3/source/mm/fadvise.c#L120
 	 *
-	 *  Since we align the file offset and nbytes to the nearest page
-	 *  boundary, when the size of buf or the value specified in count is
-	 *  not suitably aligned, the actual bytes to be flushed may be more
-	 *  than the number of bytes that read()/write() returns, which could
-	 *  result in performance degradation.
+	 *  We align the file offset and nbytes to the nearest page
+	 *  boundary. When the size of buf or the value specified in count for
+	 *  read()/write() system call is not suitably aligned, the actual bytes
+	 *  to be flushed will be greater than the number of bytes that
+	 *  read()/write() returns. Therefore, we need to pay attention to
+	 *  possible performance degradation because of this.
 	 */
-	offset = nearest_left_page_boundary(fpos);
-	len = nearest_right_page_boundary(nbytes + fpos) - offset;
 
-	if (len)
-		return orig_sys_fadvise64_64(fd, offset, len,
-					     POSIX_FADV_DONTNEED);
-	else
-		/* If len is 0, there is no page need to be flushed. */
-		return 0;
+	startbyte = spos & PAGE_MASK;
+	endbyte = (epos + (PAGE_SIZE - 1)) & PAGE_MASK;
+
+	return orig_sys_fadvise64_64(fd, startbyte, endbyte - startbyte + 1,
+				     POSIX_FADV_DONTNEED);
 }
 
 /*
  * This function is enhanced based on
  * io_is_direct() from
- *	https://elixir.bootlin.com/linux/v5.1.12/source/include/linux/fs.h#L3297
+ *	https://elixir.bootlin.com/linux/v5.3/source/include/linux/fs.h#L3304
  * xfs_file_read_iter() from
- *	https://elixir.bootlin.com/linux/v5.1.12/source/fs/xfs/xfs_file.c#L252
+ *	https://elixir.bootlin.com/linux/v5.3/source/fs/xfs/xfs_file.c#L260
  * and xfs_file_write_iter() from
- *	https://elixir.bootlin.com/linux/v5.1.12/source/fs/xfs/xfs_file.c#L692
+ *	https://elixir.bootlin.com/linux/v5.3/source/fs/xfs/xfs_file.c#L705
  */
 static inline bool is_direct(struct file *filp)
 {
@@ -367,31 +362,44 @@ static inline bool is_direct(struct file *filp)
 	       IS_DAX(file_inode(filp));
 }
 
+/**
+ * @ret: the return value from read/write system calls
+ * @file: the struct file pointer of the file descriptor (%fd)
+ * @fd: the file descriptor passed to read/write system calls
+ * @pos: the end offset of bytes read/write in file.
+ *	 System call
+ *	 pread64()/pwrite64()/preadv()/pwritev()/preadv2()/pwritev2()
+ *	 do not update the file offset at the end, so we can't get
+ *	 this information through file->f_pos.
+ */
 static inline void advise_dontneed(ssize_t ret, struct file *file,
-				   unsigned int fd, loff_t lpos)
+				   unsigned int fd, loff_t pos)
 {
 	umode_t i_mode = file_inode(file)->i_mode;
 
 	if (ret >= 0 && S_ISREG(i_mode) && !is_direct(file))
-		do_advise_dontneed(fd, lpos - ret, ret);
+		do_advise_dontneed(fd, pos - ret, pos);
 }
 
 static asmlinkage long no_fscache_sys_read(unsigned int fd, char __user *buf,
 					   size_t count)
 {
 	struct fd f = orig_fdget_pos(fd);
-	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 
-	if (file) {
-		loff_t pos = file_pos_read(file);
+	if (f.file) {
+		loff_t pos, *ppos = file_ppos(f.file);
 
-		ret = orig_vfs_read(file, buf, count, &pos);
-		if (ret >= 0)
-			file_pos_write(file, pos);
+		if (ppos) {
+			pos = *ppos;
+			ppos = &pos;
+		}
+		ret = orig_vfs_read(f.file, buf, count, ppos);
+		if (ret >= 0 && ppos)
+			f.file->f_pos = pos;
 		orig_fdput_pos(f);
 
-		advise_dontneed(ret, file, fd, file->f_pos);
+		advise_dontneed(ret, f.file, fd, f.file->f_pos);
 	}
 	return ret;
 }
@@ -400,18 +408,21 @@ static ssize_t do_readv(unsigned long fd, const struct iovec __user *vec,
 			unsigned long vlen, rwf_t flags)
 {
 	struct fd f = orig_fdget_pos(fd);
-	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 
-	if (file) {
-		loff_t pos = file_pos_read(file);
+	if (f.file) {
+		loff_t pos, *ppos = file_ppos(f.file);
 
-		ret = orig_vfs_readv(file, vec, vlen, &pos, flags);
-		if (ret >= 0)
-			file_pos_write(file, pos);
+		if (ppos) {
+			pos = *ppos;
+			ppos = &pos;
+		}
+		ret = orig_vfs_readv(f.file, vec, vlen, ppos, flags);
+		if (ret >= 0 && ppos)
+			f.file->f_pos = pos;
 		orig_fdput_pos(f);
 
-		advise_dontneed(ret, file, fd, file->f_pos);
+		advise_dontneed(ret, f.file, fd, f.file->f_pos);
 	}
 
 	if (ret > 0)
@@ -431,22 +442,19 @@ static asmlinkage long no_fscache_sys_pread64(unsigned int fd, char __user *buf,
 					      size_t count, loff_t pos)
 {
 	struct fd f;
-	struct file *file;
 	ssize_t ret = -EBADF;
 
 	if (pos < 0)
 		return -EINVAL;
 
 	f = fdget(fd);
-	file = f.file;
-
-	if (file) {
+	if (f.file) {
 		ret = -ESPIPE;
-		if (file->f_mode & FMODE_PREAD)
-			ret = orig_vfs_read(file, buf, count, &pos);
+		if (f.file->f_mode & FMODE_PREAD)
+			ret = orig_vfs_read(f.file, buf, count, &pos);
 		fdput(f);
 
-		advise_dontneed(ret, file, fd, pos);
+		advise_dontneed(ret, f.file, fd, pos);
 	}
 
 	return ret;
@@ -462,22 +470,19 @@ static ssize_t do_preadv(unsigned long fd, const struct iovec __user *vec,
 			 unsigned long vlen, loff_t pos, rwf_t flags)
 {
 	struct fd f;
-	struct file *file;
 	ssize_t ret = -EBADF;
 
 	if (pos < 0)
 		return -EINVAL;
 
 	f = fdget(fd);
-	file = f.file;
-
-	if (file) {
+	if (f.file) {
 		ret = -ESPIPE;
-		if (file->f_mode & FMODE_PREAD)
-			ret = orig_vfs_readv(file, vec, vlen, &pos, flags);
+		if (f.file->f_mode & FMODE_PREAD)
+			ret = orig_vfs_readv(f.file, vec, vlen, &pos, flags);
 		fdput(f);
 
-		advise_dontneed(ret, file, fd, pos);
+		advise_dontneed(ret, f.file, fd, pos);
 	}
 
 	if (ret > 0)
@@ -515,18 +520,21 @@ static asmlinkage long
 no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 {
 	struct fd f = orig_fdget_pos(fd);
-	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 
-	if (file) {
-		loff_t pos = file_pos_read(file);
+	if (f.file) {
+		loff_t pos, *ppos = file_ppos(f.file);
 
-		ret = orig_vfs_write(file, buf, count, &pos);
-		if (ret >= 0)
-			file_pos_write(file, pos);
+		if (ppos) {
+			pos = *ppos;
+			ppos = &pos;
+		}
+		ret = orig_vfs_write(f.file, buf, count, ppos);
+		if (ret >= 0 && ppos)
+			f.file->f_pos = pos;
 		orig_fdput_pos(f);
 
-		advise_dontneed(ret, file, fd, file->f_pos);
+		advise_dontneed(ret, f.file, fd, f.file->f_pos);
 	}
 
 	return ret;
@@ -542,14 +550,15 @@ static ssize_t do_iter_readv_writev(struct file *filp, struct iov_iter *iter,
 	ret = kiocb_set_rw_flags(&kiocb, flags);
 	if (ret)
 		return ret;
-	kiocb.ki_pos = *ppos;
+	kiocb.ki_pos = (ppos ? *ppos : 0);
 
 	if (type == READ)
 		ret = call_read_iter(filp, &kiocb, iter);
 	else
 		ret = call_write_iter(filp, &kiocb, iter);
 	BUG_ON(ret == -EIOCBQUEUED);
-	*ppos = kiocb.ki_pos;
+	if (ppos)
+		*ppos = kiocb.ki_pos;
 	return ret;
 }
 
@@ -637,18 +646,21 @@ static ssize_t do_writev(unsigned long fd, const struct iovec __user *vec,
 			 unsigned long vlen, rwf_t flags)
 {
 	struct fd f = orig_fdget_pos(fd);
-	struct file *file = f.file;
 	ssize_t ret = -EBADF;
 
-	if (file) {
-		loff_t pos = file_pos_read(file);
+	if (f.file) {
+		loff_t pos, *ppos = file_ppos(f.file);
 
-		ret = vfs_writev(file, vec, vlen, &pos, flags);
-		if (ret >= 0)
-			file_pos_write(file, pos);
+		if (ppos) {
+			pos = *ppos;
+			ppos = &pos;
+		}
+		ret = vfs_writev(f.file, vec, vlen, ppos, flags);
+		if (ret >= 0 && ppos)
+			f.file->f_pos = pos;
 		orig_fdput_pos(f);
 
-		advise_dontneed(ret, file, fd, file->f_pos);
+		advise_dontneed(ret, f.file, fd, f.file->f_pos);
 	}
 
 	if (ret > 0)
@@ -669,22 +681,19 @@ static asmlinkage long no_fscache_sys_pwrite64(unsigned int fd,
 					       size_t count, loff_t pos)
 {
 	struct fd f;
-	struct file *file;
 	ssize_t ret = -EBADF;
 
 	if (pos < 0)
 		return -EINVAL;
 
 	f = fdget(fd);
-	file = f.file;
-
-	if (file) {
+	if (f.file) {
 		ret = -ESPIPE;
-		if (file->f_mode & FMODE_PWRITE)
-			ret = orig_vfs_write(file, buf, count, &pos);
+		if (f.file->f_mode & FMODE_PWRITE)
+			ret = orig_vfs_write(f.file, buf, count, &pos);
 		fdput(f);
 
-		advise_dontneed(ret, file, fd, pos);
+		advise_dontneed(ret, f.file, fd, pos);
 	}
 
 	return ret;
@@ -694,22 +703,19 @@ static ssize_t do_pwritev(unsigned long fd, const struct iovec __user *vec,
 			  unsigned long vlen, loff_t pos, rwf_t flags)
 {
 	struct fd f;
-	struct file *file;
 	ssize_t ret = -EBADF;
 
 	if (pos < 0)
 		return -EINVAL;
 
 	f = fdget(fd);
-	file = f.file;
-
-	if (file) {
+	if (f.file) {
 		ret = -ESPIPE;
-		if (file->f_mode & FMODE_PWRITE)
-			ret = vfs_writev(file, vec, vlen, &pos, flags);
+		if (f.file->f_mode & FMODE_PWRITE)
+			ret = vfs_writev(f.file, vec, vlen, &pos, flags);
 		fdput(f);
 
-		advise_dontneed(ret, file, fd, pos);
+		advise_dontneed(ret, f.file, fd, pos);
 	}
 
 	if (ret > 0)
