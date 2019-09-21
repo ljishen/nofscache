@@ -6,6 +6,7 @@ obj-m += $(MOD).o
 
 KERNEL_PATH ?= /lib/modules/$(shell uname -r)/build
 MOD_SYSFS_IF := /sys/kernel/livepatch/$(MOD)
+MKFILE_DIR := $(dir $(realpath $(firstword $(MAKEFILE_LIST))))
 
 OLDEST_SUPPORTED_KERNEL := 4.12
 KERNEL_RELEASE := $(shell uname -r)
@@ -25,7 +26,7 @@ check_kernel:
 	    exit 1;														\
 	fi
 
-	@if ! cat /boot/config-$(KERNEL_RELEASE) | grep CONFIG_ADVISE_SYSCALLS=y > /dev/null 2>&1; then				\
+	@if ! cat /boot/config-$(KERNEL_RELEASE) | grep CONFIG_ADVISE_SYSCALLS=y >/dev/null 2>&1; then				\
 		printf "[INFO] Kernel config CONFIG_ADVISE_SYSCALLS is disabled.\n\n";						\
 		exit 1;														\
 	fi
@@ -36,16 +37,25 @@ clean:
 
 .PHONY: insmod
 insmod: $(MOD).ko
-	sudo insmod $(MOD).ko
+	@if [ -f "$(MOD_SYSFS_IF)/enabled" ]; then					\
+		echo "[INFO] Module $(MOD) is already inserted into the Linux Kernel.";	\
+	else										\
+		sudo insmod $(MOD).ko;							\
+	fi
 
 # Read more about livepatch consistency model:
 #	https://www.kernel.org/doc/Documentation/livepatch/livepatch.txt
 .PHONY: check_state
 check_state:
+	@printf "[INFO] Checking transition state (update every 2s)...\n\n"
+
+	@# Sleep 2 seconds beforehand to allow nomral transition state finished.
+	@sleep 2
+
 	@while : ; do							\
 		transitioning="$$(cat $(MOD_SYSFS_IF)/transition)";	\
-		if [ "$$transitioning" = "1" ]; then			\
-			echo "[INFO] Checking transition state...";	\
+		if [ "$$transitioning" -eq 1 ]; then			\
+			sudo $(MKFILE_DIR)/ck_state.sh $(check_state);	\
 			sleep 2;					\
 		else							\
 			break;						\
@@ -53,8 +63,9 @@ check_state:
 	done
 
 .PHONY: install
+install: check_state = 0
 install: insmod check_state
-	@echo "[INFO] successfully installed"
+	@echo "[INFO] Module $(MOD) is successfully installed."
 
 .PHONY: debug_install
 debug_install: export ccflags-y := -O0 -g
@@ -63,30 +74,31 @@ debug_install: install
 .PHONY: uninstall
 ifeq (,$(wildcard $(MOD_SYSFS_IF)/enabled))
 uninstall:
-	@printf "[INFO] Operation skipped due to kernel module is not loaded.\n\n"
+	@printf "[INFO] Operation skipped due to kernel module $(MOD) is not loaded.\n\n"
 else
 .PHONY: enable
 enable:
-	-@if echo 1 | sudo tee $(MOD_SYSFS_IF)/enabled > /dev/null 2>&1; then	\
-		printf "[INFO] module $(MOD) is now enabled.\n";		\
+	@if [ "$$(cat $(MOD_SYSFS_IF)/enabled)" -eq 1 ]; then			\
+		printf "[INFO] Module $(MOD) is already enabled.\n";		\
 	else									\
-		printf "[INFO] module $(MOD) is already enabled.\n\n";		\
-		exit 1;								\
+		echo 1 | sudo tee $(MOD_SYSFS_IF)/enabled >/dev/null;		\
+		printf "[INFO] Module $(MOD) is now enabled.\n";		\
 	fi
 
 .PHONY: disable
 disable:
-	-@if echo 0 | sudo tee $(MOD_SYSFS_IF)/enabled > /dev/null 2>&1; then	\
-		printf "[INFO] module $(MOD) is now disabled.\n";		\
+	@if [ "$$(cat $(MOD_SYSFS_IF)/enabled)" -eq 0 ]; then			\
+		printf "[INFO] Module $(MOD) is already disabled.\n";		\
 	else									\
-		printf "[INFO] module $(MOD) is already disabled.\n\n";		\
-		exit 1;								\
+		echo 0 | sudo tee $(MOD_SYSFS_IF)/enabled >/dev/null;		\
+		printf "[INFO] Module $(MOD) is now disabled.\n";		\
 	fi
 
 .PHONY: rmmod
+rmmod: check_state = 1
 rmmod: disable check_state
 	sudo rmmod $(MOD)
 
 uninstall: rmmod
-	@echo "[INFO] successfully uninstalled"
+	@echo "[INFO] Module $(MOD) is successfully uninstalled."
 endif
