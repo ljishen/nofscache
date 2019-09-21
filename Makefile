@@ -43,24 +43,12 @@ insmod: $(MOD).ko
 		sudo insmod $(MOD).ko;							\
 	fi
 
-# Read more about livepatch consistency model:
-#	https://www.kernel.org/doc/Documentation/livepatch/livepatch.txt
 .PHONY: check_state
 check_state:
-	@printf "[INFO] Checking transition state (update every 2s)...\n\n"
-
 	@# Sleep 2 seconds beforehand to allow nomral transition state finished.
 	@sleep 2
 
-	@while : ; do							\
-		transitioning="$$(cat $(MOD_SYSFS_IF)/transition)";	\
-		if [ "$$transitioning" -eq 1 ]; then			\
-			sudo $(MKFILE_DIR)/ck_state.sh $(check_state);	\
-			sleep 2;					\
-		else							\
-			break;						\
-		fi							\
-	done
+	@sudo $(MKFILE_DIR)/ck_state.sh $(MOD) $(check_state)
 
 .PHONY: install
 install: check_state = 0
