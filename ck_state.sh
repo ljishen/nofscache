@@ -45,17 +45,25 @@ fi
 MAX_SHOW_NUM_TASKS=5
 
 print_blocking_tasks() {
-  blocking_tasks=()
+  local blocking_tasks=()
+
   for ps in /proc/*/task/*/patch_state; do
+    local tid task_path patch_state
+
     tid="$(echo "$ps" | cut -d '/' -f 5)"
     task_path=/proc/"${tid}"
 
-    if [[ -f "$task_path"/patch_state && "$(sudo cat "$task_path"/patch_state)" -eq "$check_state" ]]; then
+    # the process may not exist at this time
+    patch_state="$(cat "$task_path"/patch_state 2>/dev/null || true)"
+
+    if [[ "${patch_state:--1}" -eq "$check_state" ]]; then
       blocking_tasks+=("$tid")
     fi
   done
 
   if [[ "${#blocking_tasks[@]}" -ne 0 ]]; then
+    local blocking_tids results lines num_results
+
     blocking_tids="$(
       IFS=,
       echo "${blocking_tasks[@]}"

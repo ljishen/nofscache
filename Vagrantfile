@@ -98,6 +98,9 @@ Vagrant.configure('2') do |config|
     libvirt.qemuargs value: 'tcp::1234'
   end
 
+  # Enable X11 forwarding over SSH connections
+  config.ssh.forward_x11 = true
+
   auto_mount_command = "echo >> /etc/fstab\n"
   synced_folders.each do |folder|
     auto_mount_command += <<-MOUNT_COMMAND
@@ -144,6 +147,9 @@ Vagrant.configure('2') do |config|
 
     echo "[INFO] Enable serial console service"
     systemctl enable serial-getty@ttyS0.service
+
+    echo "[INFO] Update sshd_config to enable X11 forwarding"
+    sed -i -r 's/.*(X11UseLocalhost ).*/\1no/' /etc/ssh/sshd_config
 
     echo "[INFO] Reboot to update system configuration"
     reboot
