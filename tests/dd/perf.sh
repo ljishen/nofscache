@@ -2,7 +2,7 @@
 
 set -eu -o pipefail
 
-SCRIPT_NAME="$(basename "$BASH_SOURCE")"
+SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
 
 usage() {
   printf "Usage: ./%s [DD_OPTIONS]
@@ -38,10 +38,10 @@ fallocate --length "$TEST_FILE_SIZE_KiB"KiB "$tmpfile"
 
 dd_comm=(
   dd
-  if="$tmpfile"
-  of=/dev/null
-  count=$((TEST_FILE_SIZE_KiB / 4))
-  bs=4K
+  "if=$tmpfile"
+  "of=/dev/null"
+  "count=$((TEST_FILE_SIZE_KiB / 4))"
+  "bs=4K"
   "$@"
 )
 
