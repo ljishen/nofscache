@@ -32,7 +32,7 @@ die() {
 }
 trap die EXIT
 
-TEST_FILE_SIZE_KiB="$((1024 * 1024))"
+TEST_FILE_SIZE_KiB="$((30 * 1024 * 1024))"
 echo "[INFO] Generating data file $tmpfile ($TEST_FILE_SIZE_KiB KiB)"
 fallocate --length "$TEST_FILE_SIZE_KiB"KiB "$tmpfile"
 
