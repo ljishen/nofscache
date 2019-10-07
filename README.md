@@ -67,6 +67,6 @@ This repository contains a Vagrantfile used to start an Ubuntu 18.04 environment
 
   Try to add this rule to file `/etc/hosts.allow`
   ```bash
-  # echo "rpcbind: 192.168.121." >> /etc/hosts.allow
+  $ echo "rpcbind: 192.168.121." >> /etc/hosts.allow
   ```
-  As the default `management_network_address` used by `vagrant-libvirt` is `192.168.121.0/24`. See [management_network_address](https://github.com/vagrant-libvirt/vagrant-libvirt/blob/master/README.md#management-network) for more details.
+  As the default `management_network_address` used by `vagrant-libvirt` is `192.168.121.0/24`. See [management_network_address](https://github.com/vagrant-libvirt/vagrant-libvirt#management-network) for more details.
