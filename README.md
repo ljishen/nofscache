@@ -3,7 +3,7 @@
 This repository contains a Vagrantfile used to start an Ubuntu 18.04 environment for testing.
 
 
-## How to start the vagrant environment
+## How to start the Vagrant environment
 
 1. Download and install Vagrant
    ```bash
@@ -11,7 +11,7 @@ This repository contains a Vagrantfile used to start an Ubuntu 18.04 environment
    sudo dpkg -i /tmp/vagrant_x86_64.deb
    ```
 
-2. This vagrant environment uses the libvirt provider. We need to have all the build dependencies installed in order to use [vagrant-libvirt](https://github.com/vagrant-libvirt/vagrant-libvirt)
+2. This Vagrant environment uses the libvirt provider. We need to have all the build dependencies installed in order to use [vagrant-libvirt](https://github.com/vagrant-libvirt/vagrant-libvirt)
    ```bash
    sudo apt-get -y update
    sudo apt-get -y install qemu libvirt-bin ebtables dnsmasq-base
@@ -33,17 +33,22 @@ This repository contains a Vagrantfile used to start an Ubuntu 18.04 environment
    sudo apt-get -y install nfs-kernel-server
    ```
 
-6. Start the vagrant environment
+6. Start the Vagrant environment
    ```bash
    git clone https://github.com/ljishen/nofscache
    cd nofscache
    vagrant up
    ```
 
-7. SSH connect to the machine
+7. Connect to the virtual machine via SSH
    ```bash
    vagrant ssh
    ```
+   or via serial console
+   ```bash
+   virsh console "$(virsh list --state-running --name | grep nofscache)"
+   ```
+   The default user is `vagrant` with password `vagrant`. To exit a virsh console session, type `Ctrl+]`.
 
 
 ## Troubleshooting
