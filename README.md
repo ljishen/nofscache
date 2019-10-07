@@ -14,7 +14,7 @@ This repository contains a Vagrantfile used to start an Ubuntu 18.04 environment
 2. This vagrant environment uses the libvirt provider. We need to have all the build dependencies installed in order to use [vagrant-libvirt](https://github.com/vagrant-libvirt/vagrant-libvirt)
    ```bash
    sudo apt-get -y update
-   sudo apt-get -y install qemu libvirt-dev libvirt-bin ebtables dnsmasq-base
+   sudo apt-get -y install qemu libvirt-bin ebtables dnsmasq-base
    sudo apt-get -y install libxslt-dev libxml2-dev libvirt-dev zlib1g-dev ruby-dev
    ```
 
@@ -44,3 +44,29 @@ This repository contains a Vagrantfile used to start an Ubuntu 18.04 environment
    ```bash
    vagrant ssh
    ```
+
+
+## Troubleshooting
+
+- If you see something like the following error during `vagrant up`:
+  ```bash
+  ==> default: Mounting NFS shared folders...
+  The following SSH command responded with a non-zero exit status.
+  Vagrant assumes that this means the command failed!
+
+  mount -o vers=3,udp,rw,vers=3,tcp,actimeo=2 192.168.121.1:/users/ljishen/nofscache /vagrant
+
+  Stdout from the command:
+
+
+
+  Stderr from the command:
+
+  mount.nfs: access denied by server while mounting 192.168.121.1:/users/ljishen/nofscache
+  ```
+
+  Try to add this rule to file `/etc/hosts.allow`
+  ```bash
+  # echo "rpcbind: 192.168.121." >> /etc/hosts.allow
+  ```
+  As the default `management_network_address` used by `vagrant-libvirt` is `192.168.121.0/24`. See [management_network_address](https://github.com/vagrant-libvirt/vagrant-libvirt/blob/master/README.md#management-network) for more details.

@@ -151,9 +151,7 @@ Vagrant.configure('2') do |config|
     echo "[INFO] Update sshd_config to enable X11 forwarding"
     sed -i -r 's/.*(X11UseLocalhost ).*/\1no/' /etc/ssh/sshd_config
 
-    echo "[INFO] Reboot to update system configuration"
+    echo "[INFO] Done system provision. Reboot to update system configuration"
     reboot
-
-    echo "[INFO] Done system provision."
   SHELL
 end
