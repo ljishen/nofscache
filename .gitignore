@@ -64,3 +64,6 @@ compile_commands.json
 debuggee/
 
 .mypy_cache/
+
+# VIM swap file for the file you are editing
+*.swp
