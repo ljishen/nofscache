@@ -250,6 +250,13 @@ static asmlinkage long no_fscache_sys_fadvise64_64(int fd, loff_t offset,
 static long no_fscache_do_sys_open(int dfd, const char __user *filename,
 				   int flags, umode_t mode)
 {
+	/*
+	 * We need O_DSYNC for the write operation as POSIX_FADV_DONTNEED uses
+	 * WB_SYNC_NONE to writeback dirty pages which does not wait for
+	 * existing IO to complete. See the following links for details:
+	 *	https://elixir.bootlin.com/linux/v5.3/source/include/linux/writeback.h#L42
+	 *	https://elixir.bootlin.com/linux/v5.3/source/mm/fadvise.c#L117
+	 */
 	int fd = orig_do_sys_open(dfd, filename, flags | O_DSYNC, mode);
 
 	/*
