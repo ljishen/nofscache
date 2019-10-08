@@ -80,11 +80,11 @@ This repository contains a Vagrantfile used to start an Ubuntu 18.04.3 LTS envir
 
 ## Miscellaneous
 
-- How to change the directory where Vagrant boxes are stored?
+- **How to change the directory where Vagrant boxes are stored?**
 
   Set the [`VAGRANT_HOME`](https://www.vagrantup.com/docs/other/environmental-variables.html#vagrant_home) environmental variable.
 
-- How to change the default libvirt storage pool?
+- **How to change the default libvirt storage pool?**
 
     - Related Posts:
         - [Configure default KVM virtual storage on Redhat Linux](https://linuxconfig.org/configure-default-kvm-virtual-storage-on-redhat-linux)
