@@ -76,3 +76,20 @@ This repository contains a Vagrantfile used to start an Ubuntu 18.04.3 LTS envir
   $ echo "rpcbind: 192.168.121." >> /etc/hosts.allow
   ```
   As the default `management_network_address` used by `vagrant-libvirt` is `192.168.121.0/24`. See [management_network_address](https://github.com/vagrant-libvirt/vagrant-libvirt#management-network) for more details.
+
+
+## Miscellaneous
+
+- How to change the directory where Vagrant boxes are stored?
+
+  Set the [`VAGRANT_HOME`](https://www.vagrantup.com/docs/other/environmental-variables.html#vagrant_home) environmental variable.
+
+- How to change the default libvirt storage pool?
+
+    - Related Posts:
+        - [Configure default KVM virtual storage on Redhat Linux](https://linuxconfig.org/configure-default-kvm-virtual-storage-on-redhat-linux)
+        - [How to change the default Storage Pool from libvirt?](https://serverfault.com/questions/840519/how-to-change-the-default-storage-pool-from-libvirt)
+        - [Storage Management](https://libvirt.org/storage.html)
+    - The `permission denied error`:
+        - [qemu-kvm: could not open disk image ' ': Permission denied](https://github.com/jedi4ever/veewee/issues/996)
+        - [permission denied error for NFS image, should libvirt error message mention virt_use_nfs?](https://bugzilla.redhat.com/show_bug.cgi?id=589922)
