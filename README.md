@@ -1,6 +1,6 @@
 # nofscache
 
-This repository contains a Vagrantfile used to start an Ubuntu 18.04 environment for testing.
+This repository contains a Vagrantfile used to start an Ubuntu 18.04.3 LTS environment for testing.
 
 
 ## How to start the Vagrant environment
@@ -28,7 +28,7 @@ This repository contains a Vagrantfile used to start an Ubuntu 18.04 environment
    vagrant plugin install vagrant-libvirt
    ```
 
-5. Install NFS server because we need NFS to set up the synced folder
+5. Install NFS server since we use NFS to set up synced folders
    ```bash
    sudo apt-get -y install nfs-kernel-server
    ```
