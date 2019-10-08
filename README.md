@@ -13,7 +13,7 @@ This repository contains a Vagrantfile used to start an Ubuntu 18.04.3 LTS envir
 
 2. This Vagrant environment uses the libvirt provider. We need to have all the build dependencies installed in order to use [vagrant-libvirt](https://github.com/vagrant-libvirt/vagrant-libvirt)
    ```bash
-   sudo apt-get -y update
+   sudo apt-get update
    sudo apt-get -y install qemu libvirt-bin ebtables dnsmasq-base
    sudo apt-get -y install libxslt-dev libxml2-dev libvirt-dev zlib1g-dev ruby-dev
    ```
