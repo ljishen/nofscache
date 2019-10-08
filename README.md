@@ -42,13 +42,14 @@ This repository contains a Vagrantfile used to start an Ubuntu 18.04.3 LTS envir
 
 7. Connect to the virtual machine via SSH
    ```bash
-   vagrant ssh
+   vagrant [-X] ssh
    ```
    or via serial console
    ```bash
    virsh console "$(virsh list --state-running --name | grep nofscache)"
    ```
-   The default user is `vagrant` with password `vagrant`. To exit a virsh console session, type `Ctrl+]`.
+    - Use `vagrant -X ssh` to connect with X11 forwarding enabled.
+    - The default user is `vagrant` with password `vagrant`. To exit a virsh console session, type `Ctrl+]`.
 
 
 ## Troubleshooting

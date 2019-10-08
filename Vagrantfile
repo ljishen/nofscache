@@ -149,7 +149,7 @@ Vagrant.configure('2') do |config|
     systemctl enable serial-getty@ttyS0.service
 
     echo "[INFO] Update sshd_config to enable X11 forwarding"
-    sed -i -r 's/.*(X11UseLocalhost ).*/\1no/' /etc/ssh/sshd_config
+    sed -i -r 's/.*(X11UseLocalhost ).*/\\1no/' /etc/ssh/sshd_config
 
     echo "[INFO] Done system provision. Reboot to update system configuration"
     reboot
