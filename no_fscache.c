@@ -30,11 +30,9 @@
 #include <linux/file.h>
 #include <linux/fsnotify.h>
 #include <linux/livepatch.h>
+#include <linux/module.h>
 #include <linux/sched/xacct.h>
 #include <linux/uio.h>
-
-#include <linux/kernel.h>
-#include <linux/module.h>
 
 static bool readahead = true;
 static const struct kernel_param_ops readahead_param_ops = {
@@ -327,7 +325,7 @@ static inline void orig_fdput_pos(struct fd f)
  *
  * Return values are the same as the return values of fadvise64_64(2)
  */
-static int do_advise_dontneed(unsigned int fd, loff_t spos, loff_t epos)
+static inline int do_advise_dontneed(unsigned int fd, loff_t spos, loff_t epos)
 {
 	loff_t startbyte;
 	loff_t endbyte;
