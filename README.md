@@ -5,7 +5,7 @@ This repository contains a Vagrantfile used to start an Ubuntu 18.04.3 LTS envir
 
 ## Requirements
 
-    - Only support 64-bit userspace programs since we didn't patch the compatibility version of system calls ([compat_sys_xyzzy()](https://www.kernel.org/doc/html/latest/process/adding-syscalls.html#compatibility-system-calls-generic)).
+- Only support 64-bit userspace programs since we didn't patch the compatibility version of system calls ([compat_sys_xyzzy()](https://www.kernel.org/doc/html/latest/process/adding-syscalls.html#compatibility-system-calls-generic)).
 
 
 ## How to start the Vagrant environment
