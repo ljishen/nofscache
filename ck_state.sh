@@ -2,15 +2,15 @@
 
 set -eu -o pipefail
 
-SCRIPT_NAME="$(basename "$BASH_SOURCE")"
+SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
 
 usage() {
-  printf "Usage: ./%s MOD_NAME CHECK_STATE
+  printf "Usage: %s MOD_NAME CHECK_STATE
 MOD_NAME\\t: name of kernel module
 CHECK_STATE\\t: patch state to check. 0 is unpatched and 1 is patched.
 
 eg,
-    ./%s no_fscache 0   # check unpatched state for module no_fscache
+    %s no_fscache 0     # check unpatched state for module no_fscache
 
 See livepatch consistency model for details:
     https://www.kernel.org/doc/Documentation/livepatch/livepatch.txt

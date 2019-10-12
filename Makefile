@@ -15,7 +15,7 @@ $(MOD).ko: check_kernel
 	make -C $(KERNEL_PATH) M=$(CURDIR) modules
 
 # Code reference for the second check:
-#	https://elixir.bootlin.com/linux/v5.1.5/source/mm/fadvise.c#L191
+#	https://elixir.bootlin.com/linux/v5.3/source/mm/fadvise.c#L191
 #
 # We may need to take care of the other case that the kernel config file could
 # present as /proc/config.gz if the kernel was compiled with CONFIG_IKCONFIG.
