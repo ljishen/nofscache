@@ -1,0 +1,16 @@
+; fio-rand-read.job for fiotest
+
+[global]
+name=fio-rand-read
+filename=data
+rw=randread
+bs=4K
+direct=0
+numjobs=10
+time_based=1
+runtime=60
+
+[file1]
+size=10G
+ioengine=sync
+iodepth=16
