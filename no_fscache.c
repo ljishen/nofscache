@@ -30,7 +30,6 @@
 #include <linux/file.h>
 #include <linux/fsnotify.h>
 #include <linux/livepatch.h>
-#include <linux/module.h>
 #include <linux/sched/xacct.h>
 #include <linux/uio.h>
 #include <linux/writeback.h>
