@@ -196,7 +196,7 @@ static void param_array_free(void *arg)
 
 #define MAX_BLKDEVS 128
 static char *no_fscache_device_param[MAX_BLKDEVS];
-static int count;
+static int ndevices;
 const struct kernel_param_ops device_array_ops = {
 	.set = device_array_set,
 	.get = param_array_get,
@@ -204,7 +204,7 @@ const struct kernel_param_ops device_array_ops = {
 };
 
 module_param_array_ops_named(no_fscache_device, no_fscache_device_param,
-			     &device_array_ops, charp, &count, 0644);
+			     &device_array_ops, charp, &ndevices, 0644);
 
 MODULE_PARM_DESC(no_fscache_device,
 		 "The affected block devices. Default: \"\" (none).");
@@ -256,8 +256,8 @@ static long no_fscache_do_sys_open(int dfd, const char __user *filename,
 	 * We need O_DSYNC for the write operation as POSIX_FADV_DONTNEED uses
 	 * WB_SYNC_NONE to writeback dirty pages which does not wait for
 	 * existing IO to complete. See the following links for details:
-	 *	https://elixir.bootlin.com/linux/v5.3/source/include/linux/writeback.h#L42
-	 *	https://elixir.bootlin.com/linux/v5.3/source/mm/fadvise.c#L117
+	 *	https://elixir.bootlin.com/linux/v5.3.6/source/include/linux/writeback.h#L42
+	 *	https://elixir.bootlin.com/linux/v5.3.6/source/mm/fadvise.c#L116
 	 */
 	int fd = orig_do_sys_open(dfd, filename, flags, mode);
 
@@ -300,7 +300,7 @@ static inline struct fd orig_fdget_pos(int fd)
 
 /*
  * File is stream-like
- * See https://elixir.bootlin.com/linux/v5.3/source/include/linux/fs.h#L162
+ * See https://elixir.bootlin.com/linux/v5.3.6/source/include/linux/fs.h#L162
  */
 #define FMODE_STREAM ((__force fmode_t)0x200000)
 
@@ -344,7 +344,7 @@ static inline int do_fadvise_dontneed(unsigned int fd, loff_t spos, loff_t epos)
 	 *  We round the spos down to a page boundary and round the epos up to
 	 *  a page boundary as partial pages are deliberately ignored by the
 	 *  fadvise64(2) call.
-	 *  See https://elixir.bootlin.com/linux/v5.3/source/mm/fadvise.c#L120
+	 *  See https://elixir.bootlin.com/linux/v5.3.6/source/mm/fadvise.c#L119
 	 *
 	 *  When the file offset, size of user buffer, or the value of count
 	 *  used in read(2), write(2), or similar system calls is not suitably
@@ -365,11 +365,11 @@ static inline int do_fadvise_dontneed(unsigned int fd, loff_t spos, loff_t epos)
 /*
  * This function is enhanced based on
  * io_is_direct() from
- *	https://elixir.bootlin.com/linux/v5.3/source/include/linux/fs.h#L3304
+ *	https://elixir.bootlin.com/linux/v5.3.6/source/include/linux/fs.h#L3304
  * xfs_file_read_iter() from
- *	https://elixir.bootlin.com/linux/v5.3/source/fs/xfs/xfs_file.c#L260
+ *	https://elixir.bootlin.com/linux/v5.3.6/source/fs/xfs/xfs_file.c#L261
  * and xfs_file_write_iter() from
- *	https://elixir.bootlin.com/linux/v5.3/source/fs/xfs/xfs_file.c#L705
+ *	https://elixir.bootlin.com/linux/v5.3.6/source/fs/xfs/xfs_file.c#L706
  */
 static inline bool is_direct(struct file *filp)
 {
@@ -638,7 +638,7 @@ no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 			 * dirty pages to disk because it does not flush disk
 			 * write caches. See the description of
 			 * ksys_sync_file_range()
-			 * https://elixir.bootlin.com/linux/v5.3/source/fs/sync.c#L364
+			 * https://elixir.bootlin.com/linux/v5.3.6/source/fs/sync.c#L364
 			 */
 			sync_file_range(f.file, pos - ret, ret,
 					SYNC_FILE_RANGE_WRITE);
@@ -977,7 +977,7 @@ static void no_fscache_exit(void)
 module_init(no_fscache_init);
 module_exit(no_fscache_exit);
 
-MODULE_DESCRIPTION("Bypass the file system read and write caches");
+MODULE_DESCRIPTION("Eliminating caching effects for I/Os to storage devices");
 MODULE_VERSION("0.1");
 MODULE_AUTHOR("Jianshen Liu <jliu120@ucsc.edu>");
 MODULE_LICENSE("Dual BSD/GPL");
