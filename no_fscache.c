@@ -615,6 +615,21 @@ out:
 	return ret;
 }
 
+static inline void async_with_disk(struct file *file, loff_t offset,
+				   ssize_t ret)
+{
+	umode_t i_mode = file_inode(file)->i_mode;
+
+	if (ret > 0 && S_ISREG(i_mode) && !is_direct(file))
+		/*
+		 * we use this function instead of O_DSYNC to sync
+		 * dirty pages to disk because it does not flush disk
+		 * caches. See the description of ksys_sync_file_range()
+		 * https://elixir.bootlin.com/linux/v5.3.6/source/fs/sync.c#L364
+		 */
+		sync_file_range(file, offset, ret, SYNC_FILE_RANGE_WRITE);
+}
+
 static asmlinkage long
 no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 {
@@ -631,20 +646,9 @@ no_fscache_sys_write(unsigned int fd, const char __user *buf, size_t count)
 		ret = orig_vfs_write(f.file, buf, count, ppos);
 		if (ret >= 0 && ppos) {
 			f.file->f_pos = pos;
-
-			/*
-			 * we use this function instead of O_DSYNC to sync
-			 * dirty pages to disk because it does not flush disk
-			 * write caches. See the description of
-			 * ksys_sync_file_range()
-			 * https://elixir.bootlin.com/linux/v5.3.6/source/fs/sync.c#L364
-			 */
-			sync_file_range(f.file, pos - ret, ret,
-					SYNC_FILE_RANGE_WRITE);
+			async_with_disk(f.file, pos - ret, ret);
 		}
 		orig_fdput_pos(f);
-
-		/* fadvise_dontneed(ret, f.file, fd, f.file->f_pos); */
 	}
 
 	return ret;
@@ -766,11 +770,11 @@ static ssize_t do_writev(unsigned long fd, const struct iovec __user *vec,
 			ppos = &pos;
 		}
 		ret = vfs_writev(f.file, vec, vlen, ppos, flags);
-		if (ret >= 0 && ppos)
+		if (ret >= 0 && ppos) {
 			f.file->f_pos = pos;
+			async_with_disk(f.file, pos - ret, ret);
+		}
 		orig_fdput_pos(f);
-
-		fadvise_dontneed(ret, f.file, fd, f.file->f_pos);
 	}
 
 	if (ret > 0)
@@ -801,9 +805,9 @@ static asmlinkage long no_fscache_sys_pwrite64(unsigned int fd,
 		ret = -ESPIPE;
 		if (f.file->f_mode & FMODE_PWRITE)
 			ret = orig_vfs_write(f.file, buf, count, &pos);
-		fdput(f);
 
-		fadvise_dontneed(ret, f.file, fd, pos);
+		async_with_disk(f.file, pos - ret, ret);
+		fdput(f);
 	}
 
 	return ret;
@@ -823,9 +827,9 @@ static ssize_t do_pwritev(unsigned long fd, const struct iovec __user *vec,
 		ret = -ESPIPE;
 		if (f.file->f_mode & FMODE_PWRITE)
 			ret = vfs_writev(f.file, vec, vlen, &pos, flags);
-		fdput(f);
 
-		fadvise_dontneed(ret, f.file, fd, pos);
+		async_with_disk(f.file, pos - ret, ret);
+		fdput(f);
 	}
 
 	if (ret > 0)
