@@ -42,17 +42,17 @@ Again, you may need to kill processes to help the module finish the transition s
 There are four basic Linux I/O models,
 
 <style type="text/css">
-.tg  {border-collapse:collapse;border-spacing:0;border-width:1px;border-style:solid;border-color:#ccc;}
+.tg  {border-collapse:collapse;border-spacing:0;border-width:0px;border-style:solid; width: 550px;}
 .tg td{font-family:Arial, sans-serif;font-size:14px;padding:10px 5px;border-style:solid;border-width:0px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#fff;}
 .tg th{font-family:Arial, sans-serif;font-size:14px;font-weight:normal;padding:10px 5px;border-style:solid;border-width:0px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#f0f0f0;}
-.tg .tg-r02c{font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff00;border-color:#ffffff00;text-align:center;vertical-align:middle}
-.tg .tg-jlnk{background-color:#ffffff00;font-weight:bold;font-family:"Courier New", Courier, monospace !important;;color:#ffffff;border-color:#ffffff00;text-align:center;vertical-align:middle}
-.tg .tg-qbe5{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#ffccc9;border-color:#ffffff00;text-align:center;vertical-align:middle}
-.tg .tg-byox{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff00;color:#ffffff;border-color:#ffffff00;text-align:center;vertical-align:middle}
-.tg .tg-94pa{background-color:#5fbb7d;font-weight:bold;font-family:"Courier New", Courier, monospace !important;;border-color:#ffffff00;text-align:center;vertical-align:middle}
-.tg .tg-p99n{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#5fbb7d;border-color:#ffffff00;text-align:center;vertical-align:middle}
+.tg .tg-r02c{font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff00;border-color:#ffffff;text-align:center;vertical-align:middle}
+.tg .tg-jlnk{background-color:#ffffff00;font-weight:bold;font-family:"Courier New", Courier, monospace !important;;color:#ffffff;border-color:#ffffff;text-align:center;vertical-align:middle}
+.tg .tg-qbe5{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#ffccc9;border-color:#ffffff;text-align:center;vertical-align:middle}
+.tg .tg-byox{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff00;color:#ffffff;border-color:#ffffff;text-align:center;vertical-align:middle}
+.tg .tg-94pa{background-color:#e0e4cc;font-weight:bold;font-family:"Courier New", Courier, monospace !important;;border-color:#ffffff;text-align:center;vertical-align:middle}
+.tg .tg-p99n{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#e0e4cc;border-color:#ffffff;text-align:center;vertical-align:middle}
 </style>
-<table class="tg">
+<table class="tg" align="center">
   <tr>
     <th class="tg-r02c"></th>
     <th class="tg-byox">Blocking</th>
