@@ -39,7 +39,38 @@ Again, you may need to kill processes to help the module finish the transition s
 
 ## Limitations
 
-There are four basic Linux I/O modules,
+There are four basic Linux I/O models,
+
+<style type="text/css">
+.tg  {border-collapse:collapse;border-spacing:0;border-width:1px;border-style:solid;border-color:#ccc;}
+.tg td{font-family:Arial, sans-serif;font-size:14px;padding:10px 5px;border-style:solid;border-width:0px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#fff;}
+.tg th{font-family:Arial, sans-serif;font-size:14px;font-weight:normal;padding:10px 5px;border-style:solid;border-width:0px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#f0f0f0;}
+.tg .tg-5wbq{font-family:"Courier New", Courier, monospace !important;;background-color:#ffce93;border-color:#000000;text-align:center;vertical-align:middle}
+.tg .tg-6raf{background-color:#d4e3e5;font-family:"Courier New", Courier, monospace !important;;border-color:#000000;text-align:center;vertical-align:middle}
+.tg .tg-dafy{font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff;border-color:#000000;text-align:center;vertical-align:middle}
+.tg .tg-nmgf{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff;border-color:#000000;text-align:center;vertical-align:middle}
+.tg .tg-kt0u{background-color:#ffffff;font-weight:bold;font-family:"Courier New", Courier, monospace !important;;border-color:#000000;text-align:center;vertical-align:middle}
+.tg .tg-ka4s{font-family:"Courier New", Courier, monospace !important;;background-color:#d4e3e5;border-color:#000000;text-align:center;vertical-align:middle}
+</style>
+<table class="tg">
+  <tr>
+    <th class="tg-dafy"></th>
+    <th class="tg-nmgf">Blocking</th>
+    <th class="tg-nmgf">Non-blocking</th>
+  </tr>
+  <tr>
+    <td class="tg-kt0u">Synchronous</td>
+    <td class="tg-6raf">read/write</td>
+    <td class="tg-6raf">read/write<br>(O_NONBLOCK)</td>
+  </tr>
+  <tr>
+    <td class="tg-nmgf">Asynchronous</td>
+    <td class="tg-ka4s">I/O multiplexing<br>(select/poll) </td>
+    <td class="tg-5wbq">AIO<br>(libaio/io_uring)</td>
+  </tr>
+</table>
+
+This module supports synchronous blocking I/O, synchronous non-blocking I/O and asynchronous blocking I/O. It has no effect on asynchronous non-blocking I/O. Here is [a really good article](https://developer.ibm.com/articles/l-async/) explaining the differences between these I/O models.
 
 
 ## Performance Results
@@ -53,4 +84,4 @@ There are four basic Linux I/O modules,
 
 ### Result Details
 
-<iframe scrolling="no" style="overflow:hidden" width="100%" height="1450px" src="https://docs.google.com/spreadsheets/d/e/2PACX-1vTVNWUu5A_qmFfiO68-wHfQrb7jZeFr4U95_8CPBJhpkT4bxXRmSOSsPgCwfcfvs4LhGzySZ04It9dv/pubhtml?gid=1229428066&amp;single=true&amp;widget=true&amp;headers=false"></iframe>
+<iframe scrolling="no" style="overflow:hidden" width="100%" height="1480px" src="https://docs.google.com/spreadsheets/d/e/2PACX-1vTVNWUu5A_qmFfiO68-wHfQrb7jZeFr4U95_8CPBJhpkT4bxXRmSOSsPgCwfcfvs4LhGzySZ04It9dv/pubhtml?gid=1229428066&amp;single=true&amp;widget=true&amp;headers=false"></iframe>
