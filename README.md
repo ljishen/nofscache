@@ -1,6 +1,6 @@
 # nofscache
 
-A loadable kernel moduel trying to eliminating the page caching effects for user applications.
+A loadable kernel moduel trying to eliminating page caching effects for user applications.
 
 
 ## Requirements
@@ -18,7 +18,7 @@ There are four basic Linux I/O modules,
 See https://ljishen.github.io/nofscache/ for more details.
 
 
-## How to start the Vagrant environment
+## How to start the Vagrant testing environment
 
 This repository contains a Vagrantfile used to start an Ubuntu 18.04.3 LTS environment for testing.
 
