@@ -45,28 +45,28 @@ There are four basic Linux I/O models,
 .tg  {border-collapse:collapse;border-spacing:0;border-width:1px;border-style:solid;border-color:#ccc;}
 .tg td{font-family:Arial, sans-serif;font-size:14px;padding:10px 5px;border-style:solid;border-width:0px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#fff;}
 .tg th{font-family:Arial, sans-serif;font-size:14px;font-weight:normal;padding:10px 5px;border-style:solid;border-width:0px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#f0f0f0;}
-.tg .tg-5wbq{font-family:"Courier New", Courier, monospace !important;;background-color:#ffce93;border-color:#000000;text-align:center;vertical-align:middle}
 .tg .tg-6raf{background-color:#d4e3e5;font-family:"Courier New", Courier, monospace !important;;border-color:#000000;text-align:center;vertical-align:middle}
-.tg .tg-dafy{font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff;border-color:#000000;text-align:center;vertical-align:middle}
-.tg .tg-nmgf{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff;border-color:#000000;text-align:center;vertical-align:middle}
-.tg .tg-kt0u{background-color:#ffffff;font-weight:bold;font-family:"Courier New", Courier, monospace !important;;border-color:#000000;text-align:center;vertical-align:middle}
+.tg .tg-8qhd{background-color:#ffffff00;font-weight:bold;font-family:"Courier New", Courier, monospace !important;;color:#ffffff;text-align:center;vertical-align:middle}
+.tg .tg-6hib{font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff00;text-align:center;vertical-align:middle}
+.tg .tg-w4jy{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff00;color:#ffffff;text-align:center;vertical-align:middle}
 .tg .tg-ka4s{font-family:"Courier New", Courier, monospace !important;;background-color:#d4e3e5;border-color:#000000;text-align:center;vertical-align:middle}
+.tg .tg-8rg4{font-family:"Courier New", Courier, monospace !important;;background-color:#ffccc9;border-color:#000000;text-align:center;vertical-align:middle}
 </style>
 <table class="tg">
   <tr>
-    <th class="tg-dafy"></th>
-    <th class="tg-nmgf">Blocking</th>
-    <th class="tg-nmgf">Non-blocking</th>
+    <th class="tg-6hib"></th>
+    <th class="tg-w4jy">Blocking</th>
+    <th class="tg-w4jy">Non-blocking</th>
   </tr>
   <tr>
-    <td class="tg-kt0u">Synchronous</td>
+    <td class="tg-8qhd">Synchronous</td>
     <td class="tg-6raf">read/write</td>
     <td class="tg-6raf">read/write<br>(O_NONBLOCK)</td>
   </tr>
   <tr>
-    <td class="tg-nmgf">Asynchronous</td>
+    <td class="tg-w4jy">Asynchronous</td>
     <td class="tg-ka4s">I/O multiplexing<br>(select/poll) </td>
-    <td class="tg-5wbq">AIO<br>(libaio/io_uring)</td>
+    <td class="tg-8rg4">AIO<br>(libaio/io_uring)</td>
   </tr>
 </table>
 
