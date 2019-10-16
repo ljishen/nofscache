@@ -5,15 +5,41 @@ A loadable kernel moduel trying to eliminating page caching effects for user app
 
 ## Requirements
 
-- Only support 64-bit userspace programs since we didn't patch the compatibility version of system calls ([compat_sys_xyzzy()](https://www.kernel.org/doc/html/latest/process/adding-syscalls.html#compatibility-system-calls-generic)).
+- Linux kernel version >= 4.12
+- Having `CONFIG_ADVISE_SYSCALLS=y` in /boot/config-$(shell uname -r)
+- This module affects only 64-bit userspace programs since we didn't patch the compatibility version of system calls ([compat_sys_xyzzy()](https://www.kernel.org/doc/html/latest/process/adding-syscalls.html#compatibility-system-calls-generic)).
 
 
-## Limitations
+## Installation
 
-There are four basic Linux I/O modules,
+```bash
+git clone https://github.com/ljishen/nofscache.git
+cd nofscache
+make install
+```
+
+If you keep seeing processes under
+```bash
+[INFO] Checking transition state for module no_fscache (update every 2s)...
+
+[INFO] 2 tasks are not in patched state:
+USER       PID   TID CMD
+root      1040  1131 /usr/bin/lxcfs /var/lib/lxcfs/
+root      1040  1133 /usr/bin/lxcfs /var/lib/lxcfs/
+
+...
+```
+You may need to manually kill these processes because they are stopping the module from finishing the transition state from `unpatched` to `patched`. See [livepatch consistency model](https://www.kernel.org/doc/Documentation/livepatch/livepatch.txt) for more details.
+
+To uninstall the kernel module, use
+```bash
+make uninstall
+```
+
+Again, you may need to kill processes to help the module finish the transition state from `patched` to `unpatched`.
 
 
-## Performance Results
+## Limitations and Performance Results
 
 See https://ljishen.github.io/nofscache/ for more details.
 
