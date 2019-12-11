@@ -1,8 +1,5 @@
 ---
 ---
 
+$large-breakpoint: 86em !default;
 @import "{{ site.theme }}";
-
-.main-content {
-  max-width: 85rem;
-}
