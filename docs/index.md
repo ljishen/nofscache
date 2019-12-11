@@ -1,4 +1,4 @@
-**nofscache is a loadable kernel moduel trying to eliminating page caching effects for user applications.**
+**nofscache is a loadable kernel moduel used to to eliminating page caching effects for user applications.**
 
 ## Requirements
 
@@ -41,46 +41,19 @@ Again, you may need to kill processes to help the module finish the transition s
 
 There are four basic Linux I/O models,
 
-<style type="text/css">
-.tg  {border-collapse:collapse;border-spacing:0;border-width:0px;border-style:solid; width: 550px;}
-.tg td{font-family:Arial, sans-serif;font-size:14px;padding:10px 5px;border-style:solid;border-width:0px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#fff;}
-.tg th{font-family:Arial, sans-serif;font-size:14px;font-weight:normal;padding:10px 5px;border-style:solid;border-width:0px;overflow:hidden;word-break:normal;border-color:#ccc;color:#333;background-color:#f0f0f0;}
-.tg .tg-r02c{font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff00;border-color:#ffffff;text-align:center;vertical-align:middle}
-.tg .tg-jlnk{background-color:#ffffff00;font-weight:bold;font-family:"Courier New", Courier, monospace !important;;color:#ffffff;border-color:#ffffff;text-align:center;vertical-align:middle}
-.tg .tg-qbe5{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#ffccc9;border-color:#ffffff;text-align:center;vertical-align:middle}
-.tg .tg-byox{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#ffffff00;color:#ffffff;border-color:#ffffff;text-align:center;vertical-align:middle}
-.tg .tg-94pa{background-color:#e0e4cc;font-weight:bold;font-family:"Courier New", Courier, monospace !important;;border-color:#ffffff;text-align:center;vertical-align:middle}
-.tg .tg-p99n{font-weight:bold;font-family:"Courier New", Courier, monospace !important;;background-color:#e0e4cc;border-color:#ffffff;text-align:center;vertical-align:middle}
-</style>
-<table class="tg" align="center">
-  <tr>
-    <th class="tg-r02c"></th>
-    <th class="tg-byox">Blocking</th>
-    <th class="tg-byox">Non-blocking</th>
-  </tr>
-  <tr>
-    <td class="tg-jlnk">Synchronous</td>
-    <td class="tg-94pa">read/write</td>
-    <td class="tg-94pa">read/write<br>(O_NONBLOCK)</td>
-  </tr>
-  <tr>
-    <td class="tg-byox">Asynchronous</td>
-    <td class="tg-p99n">I/O multiplexing<br>(select/poll) </td>
-    <td class="tg-qbe5">AIO<br>(libaio/io_uring)</td>
-  </tr>
-</table>
+![Four Linux IO Models](https://user-images.githubusercontent.com/468515/70580588-34d34b00-1b69-11ea-93bf-1f33acf78d31.png)
 
-This module supports synchronous blocking I/O, synchronous non-blocking I/O and asynchronous blocking I/O. It has no effect on asynchronous non-blocking I/O. Here is [a really good article](https://developer.ibm.com/articles/l-async/) explaining the differences between these I/O models.
+This module fully supports synchronous blocking I/O, and implicitly supports synchronous non-blocking I/O and asynchronous blocking I/O. For asynchronous non-blocking I/O, this module supports POSIX AIO as it is a user-space implementation that actually calls blocking I/O interfaces. The module may support [libaio](https://pagure.io/libaio) as it mainly focuses on direct I/O. We hope to support the latest I/O interface, io_uring, but this module is not ready yet. Here is [a really good article](https://developer.ibm.com/articles/l-async/) explaining the differences between these I/O models.
 
 ## Performance Results
 
-<iframe width="857.51" height="370.84820333333334" seamless frameborder="0" scrolling="no" src="https://docs.google.com/spreadsheets/d/e/2PACX-1vTVNWUu5A_qmFfiO68-wHfQrb7jZeFr4U95_8CPBJhpkT4bxXRmSOSsPgCwfcfvs4LhGzySZ04It9dv/pubchart?oid=1781414827&amp;format=interactive"></iframe>
+![Performance Results of Module no_fscache](https://user-images.githubusercontent.com/468515/70580586-343ab480-1b69-11ea-88a6-4cbbf8b37804.png)
 
 - For tests without module installed, we used the memory controller (`memory.limit_in_bytes`) in [cgroup](https://www.kernel.org/doc/Documentation/cgroup-v1/memory.txt) to limit the amount of memory (including page cache) can be used by the fio process. The limitations are generally set to a low number, and you can find the exact value we used for different tests in the section [Result Details](#result-details) below.
 - Each number is the average of 5 data points in steady-state.
-- Each test runs for 60 seconds. Here are the fio [job files](https://github.com/ljishen/nofscache/tree/master/tests/fio/jobs) of these tests.
+- Each test runs for 60 seconds. Here are the fio [job files](https://github.com/ljishen/nofscache/tree/master/tests/fio/jobs) of all tests.
 - We used block size of 4KiB for sequential tests and 256KiB for random tests.
 
 ### Result Details
 
-<iframe scrolling="no" style="overflow:hidden" width="100%" height="1480px" src="https://docs.google.com/spreadsheets/d/e/2PACX-1vTVNWUu5A_qmFfiO68-wHfQrb7jZeFr4U95_8CPBJhpkT4bxXRmSOSsPgCwfcfvs4LhGzySZ04It9dv/pubhtml?gid=1229428066&amp;single=true&amp;widget=true&amp;headers=false"></iframe>
+<iframe scrolling="no" style="overflow:hidden" width="100%" height="1500px" src="https://docs.google.com/spreadsheets/d/e/2PACX-1vTVNWUu5A_qmFfiO68-wHfQrb7jZeFr4U95_8CPBJhpkT4bxXRmSOSsPgCwfcfvs4LhGzySZ04It9dv/pubhtml?gid=1229428066&amp;single=true&amp;widget=true&amp;headers=false"></iframe>
