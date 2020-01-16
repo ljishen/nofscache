@@ -65,8 +65,8 @@ This module fully supports synchronous blocking I/O, and implicitly supports syn
 
 ## References
 
-1. Design Considerations of Eliminating External Caching Effects for MBWU Construction\
+1. Design Considerations of Eliminating External Caching Effects for MBWU Construction<br/>
    [https://cross.ucsc.edu/news/blog/mbwuconstruction_122010.html](https://cross.ucsc.edu/news/blog/mbwuconstruction_122010.html)
 
-2. Implementing a Kernel Module to Eliminating External Caching Effects\
+2. Implementing a Kernel Module to Eliminating External Caching Effects<br/>
    [https://cross.ucsc.edu/news/blog/mbwuconstruction_012020.html](https://cross.ucsc.edu/news/blog/mbwuconstruction_012020.html)
